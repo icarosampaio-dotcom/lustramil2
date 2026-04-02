@@ -1,0 +1,179 @@
+# Configuração para Manus App Platform
+# Este arquivo define como o LustraMil deve ser deployado na Manus
+
+name: lustramil
+displayName: LustraMil - Sistema de Gerenciamento de Estoque
+description: Aplicação completa para gerenciamento de estoque de limpeza
+
+# Versão da aplicação
+version: 1.0.0
+
+# Tipo de aplicação
+type: full-stack
+
+# Tecnologias
+technologies:
+  - React 19
+  - Node.js
+  - Express
+  - tRPC
+  - SQLite/MySQL
+  - TailwindCSS
+
+# Configuração de build
+build:
+  # Comando para instalar dependências
+  install: pnpm install --frozen-lockfile
+  
+  # Comando para compilar
+  build: pnpm run build
+  
+  # Diretório de saída
+  output: dist
+
+# Configuração de runtime
+runtime:
+  # Comando para iniciar
+  start: node dist/index.js
+  
+  # Porta
+  port: 3000
+  
+  # Variáveis de ambiente necessárias
+  env:
+    NODE_ENV: production
+    DATABASE_URL: file:./data/lustramil.db
+    JWT_SECRET: ${JWT_SECRET}
+    VITE_APP_ID: lustramil-app
+
+# Recursos necessários
+resources:
+  memory: 512Mi
+  cpu: 250m
+  storage: 1Gi
+
+# Health check
+healthCheck:
+  path: /health
+  interval: 30s
+  timeout: 10s
+  retries: 3
+
+# Volumes para persistência
+volumes:
+  - path: /app/data
+    size: 1Gi
+    description: Banco de dados SQLite
+  
+  - path: /app/backups
+    size: 500Mi
+    description: Backups do banco de dados
+  
+  - path: /app/logs
+    size: 500Mi
+    description: Arquivos de log
+
+# Variáveis de ambiente
+environment:
+  NODE_ENV:
+    description: Ambiente de execução
+    default: production
+    required: true
+  
+  DATABASE_URL:
+    description: URL de conexão do banco de dados
+    default: file:./data/lustramil.db
+    required: true
+  
+  JWT_SECRET:
+    description: Secret para assinatura de JWT
+    required: true
+    secret: true
+  
+  VITE_APP_ID:
+    description: ID da aplicação
+    default: lustramil-app
+    required: false
+  
+  AWS_REGION:
+    description: Região AWS (para S3)
+    required: false
+  
+  AWS_ACCESS_KEY_ID:
+    description: Access key AWS
+    required: false
+    secret: true
+  
+  AWS_SECRET_ACCESS_KEY:
+    description: Secret key AWS
+    required: false
+    secret: true
+  
+  AWS_S3_BUCKET:
+    description: Bucket S3
+    required: false
+
+# Domínio customizado
+domain:
+  # Subdomínio padrão
+  subdomain: lustramil
+  
+  # Suporta domínio customizado
+  customDomain: true
+
+# Integração com Git
+git:
+  # Branch padrão para deploy
+  branch: main
+  
+  # Auto-deploy em push
+  autoDeploy: true
+
+# Logs
+logging:
+  level: info
+  retention: 30d
+
+# Monitoramento
+monitoring:
+  enabled: true
+  metrics:
+    - cpu
+    - memory
+    - requests
+    - errors
+
+# Backup automático
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # 2:00 AM diariamente
+  retention: 30d
+
+# Escalabilidade
+scaling:
+  minInstances: 1
+  maxInstances: 3
+  targetCPU: 70
+  targetMemory: 80
+
+# Segurança
+security:
+  https: true
+  hsts: true
+  cors:
+    enabled: true
+    origins:
+      - "*"
+
+# Funcionalidades
+features:
+  - Gestão de Usuários
+  - Controle de Estoque
+  - Vendas
+  - Caixa
+  - Contas a Pagar/Receber
+  - Análise ABC
+  - Ficha Técnica
+  - Relatórios
+  - Integração Cometa
+  - Upload de Arquivos

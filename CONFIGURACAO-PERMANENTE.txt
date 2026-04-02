@@ -1,0 +1,132 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                                                                            ║
+║                   LUSTRAMIL - SITE PERMANENTE                             ║
+║                         Configuração Final                                ║
+║                                                                            ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+📍 LOCALIZAÇÃO DO PROJETO
+─────────────────────────────────────────────────────────────────────────────
+Diretório Principal: /home/ubuntu/lustramil
+
+🌐 ACESSO PÚBLICO
+─────────────────────────────────────────────────────────────────────────────
+URL Permanente: https://3001-i1kg24puzap5fjfizaqtg-1a5824a4.us1.manus.computer
+Porta Local: 3001
+Status: ATIVO E MONITORADO
+
+💾 BANCO DE DADOS
+─────────────────────────────────────────────────────────────────────────────
+Tipo: SQLite
+Localização: /home/ubuntu/lustramil/data/lustramil.db
+Backup: /home/ubuntu/lustramil/backups/
+Frequência de Backup: Manual (pode ser agendado)
+
+🚀 INICIALIZAÇÃO
+─────────────────────────────────────────────────────────────────────────────
+Script Principal: ./start-server.sh
+Comando: cd /home/ubuntu/lustramil && ./start-server.sh
+Status: Servidor está rodando com monitoramento automático
+PID File: /home/ubuntu/lustramil/server.pid
+
+📊 MONITORAMENTO
+─────────────────────────────────────────────────────────────────────────────
+Health Check: ./health-check.sh
+Logs do Servidor: ./logs/server.log
+Logs de Health: ./logs/health-check.log
+Status JSON: ./logs/health-status.json
+
+⚙️ CONFIGURAÇÃO
+─────────────────────────────────────────────────────────────────────────────
+Arquivo de Configuração: .env
+NODE_ENV: production
+JWT_SECRET: lustramil-production-secret-key-2024-change-this-in-production
+VITE_APP_ID: lustramil-app
+
+📁 ESTRUTURA DE ARQUIVOS
+─────────────────────────────────────────────────────────────────────────────
+├── start-server.sh          ← Script de inicialização
+├── health-check.sh          ← Script de health check
+├── backup.sh                ← Script de backup
+├── .env                     ← Variáveis de ambiente
+├── data/                    ← Banco de dados
+├── backups/                 ← Backups do banco
+├── logs/                    ← Arquivos de log
+├── dist/                    ← Código compilado
+├── MANUTENCAO.md            ← Documentação de manutenção
+├── README-PERMANENTE.md     ← Guia de uso
+└── CONFIGURACAO-PERMANENTE.txt  ← Este arquivo
+
+📝 DOCUMENTAÇÃO
+─────────────────────────────────────────────────────────────────────────────
+Manutenção: MANUTENCAO.md
+Uso: README-PERMANENTE.md
+Configuração: .env
+
+🔧 OPERAÇÕES COMUNS
+─────────────────────────────────────────────────────────────────────────────
+
+1. INICIAR SERVIDOR:
+   cd /home/ubuntu/lustramil
+   ./start-server.sh
+
+2. PARAR SERVIDOR:
+   kill $(cat /home/ubuntu/lustramil/server.pid)
+
+3. VERIFICAR STATUS:
+   ./health-check.sh
+
+4. VER LOGS:
+   tail -f logs/server.log
+
+5. FAZER BACKUP:
+   ./backup.sh
+
+6. RESTAURAR BACKUP:
+   cp backups/lustramil-YYYYMMDD-HHMMSS.db data/lustramil.db
+   kill $(cat server.pid)
+   ./start-server.sh
+
+🔐 SEGURANÇA
+─────────────────────────────────────────────────────────────────────────────
+⚠️  ALTERE O JWT_SECRET EM PRODUÇÃO!
+    Edite o arquivo .env e mude o valor de JWT_SECRET
+
+Permissões recomendadas:
+   chmod 600 .env
+   chmod 700 data/
+   chmod 700 backups/
+
+📊 FUNCIONALIDADES ATIVAS
+─────────────────────────────────────────────────────────────────────────────
+✅ Gestão de Usuários
+✅ Controle de Estoque
+✅ Vendas
+✅ Caixa
+✅ Contas a Pagar/Receber
+✅ Análise ABC
+✅ Ficha Técnica
+✅ Relatórios
+✅ Integração Cometa
+✅ Upload de Arquivos
+
+🎯 PRÓXIMOS PASSOS
+─────────────────────────────────────────────────────────────────────────────
+1. Acessar a URL pública acima
+2. Fazer login com credenciais padrão
+3. Configurar dados iniciais
+4. Importar dados (se necessário)
+5. Realizar testes
+
+📞 SUPORTE
+─────────────────────────────────────────────────────────────────────────────
+Consulte os arquivos de documentação:
+- MANUTENCAO.md para operação e troubleshooting
+- README-PERMANENTE.md para guia de uso
+- logs/ para diagnóstico de problemas
+
+═════════════════════════════════════════════════════════════════════════════
+Data de Configuração: 02 de Abril de 2026
+Versão: 1.0
+Status: PRODUÇÃO
+═════════════════════════════════════════════════════════════════════════════
