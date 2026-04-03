@@ -1542,8 +1542,12 @@ export const appRouter = router({
 
     exportPedidosPDF: protectedProcedure.input(z.object({
       filtroStatus: z.enum(["pendente", "entregue", "todos"]).default("pendente"),
+      filtroLoja: z.number().int().positive().optional(),
+      filtroProdutoCodigo: z.string().optional(),
+      filtroDataInicio: z.string().optional(),
+      filtroDataFim: z.string().optional(),
+      filtroSearch: z.string().optional(),
     })).mutation(async ({ input }) => {
-      // Buscar e montar pedidos
       const pedidosRaw = await cometaSyncService.getPedidos();
       const pedidosMap = new Map<string, CometaPedidoRelatorio>();
       for (const item of pedidosRaw) {
@@ -1583,13 +1587,46 @@ export const appRouter = router({
         pedido.valor_total += item.valor_total;
         pedido.total_unidades += item.total_unidades;
       }
-      const pedidos = Array.from(pedidosMap.values()).map(p => ({
+      let pedidos = Array.from(pedidosMap.values()).map(p => ({
         ...p,
         total: `R$ ${p.valor_total.toFixed(2).replace(".", ",")}`,
         itens: p.produtos.length,
       }));
 
-      const buffer = await generateCometaPedidosPDF(pedidos, input.filtroStatus);
+      // Aplicar filtros
+      if (input.filtroStatus !== "todos") pedidos = pedidos.filter(p => p.status === input.filtroStatus);
+      if (input.filtroLoja) pedidos = pedidos.filter(p => p.loja_numero === input.filtroLoja);
+      if (input.filtroProdutoCodigo) pedidos = pedidos.filter(p => p.produtos.some(pr => pr.codigo === input.filtroProdutoCodigo));
+      if (input.filtroDataInicio || input.filtroDataFim) {
+        pedidos = pedidos.filter(p => {
+          const parts = p.data.split("/");
+          if (parts.length !== 3) return true;
+          const d = new Date(+parts[2], +parts[1] - 1, +parts[0]);
+          if (input.filtroDataInicio && d < new Date(input.filtroDataInicio)) return false;
+          if (input.filtroDataFim && d > new Date(input.filtroDataFim)) return false;
+          return true;
+        });
+      }
+      if (input.filtroSearch) {
+        const s = input.filtroSearch.toLowerCase();
+        pedidos = pedidos.filter(p =>
+          p.id.toLowerCase().includes(s) ||
+          p.loja.toLowerCase().includes(s) ||
+          p.cnpj.includes(s) ||
+          p.produtos.some(pr => pr.nome.toLowerCase().includes(s) || pr.codigo.toLowerCase().includes(s) || pr.ean.includes(s))
+        );
+      }
+
+      const filtrosAplicados = {
+        status: input.filtroStatus,
+        loja: input.filtroLoja ? `Loja ${input.filtroLoja}` : undefined,
+        produto: input.filtroProdutoCodigo,
+        dataInicio: input.filtroDataInicio,
+        dataFim: input.filtroDataFim,
+        busca: input.filtroSearch,
+      };
+
+      const buffer = await generateCometaPedidosPDF(pedidos, input.filtroStatus, filtrosAplicados);
       const base64 = buffer.toString("base64");
       const statusLabel = input.filtroStatus === "pendente" ? "pendentes" : input.filtroStatus === "entregue" ? "entregues" : "todos";
       return {
@@ -1601,6 +1638,11 @@ export const appRouter = router({
 
     exportPedidosExcel: protectedProcedure.input(z.object({
       filtroStatus: z.enum(["pendente", "entregue", "todos"]).default("pendente"),
+      filtroLoja: z.number().int().positive().optional(),
+      filtroProdutoCodigo: z.string().optional(),
+      filtroDataInicio: z.string().optional(),
+      filtroDataFim: z.string().optional(),
+      filtroSearch: z.string().optional(),
     })).mutation(async ({ input }) => {
       const pedidosRaw = await cometaSyncService.getPedidos();
       const pedidosMap = new Map<string, CometaPedidoRelatorio>();
@@ -1641,11 +1683,35 @@ export const appRouter = router({
         pedido.valor_total += item.valor_total;
         pedido.total_unidades += item.total_unidades;
       }
-      const pedidos = Array.from(pedidosMap.values()).map(p => ({
+      let pedidos = Array.from(pedidosMap.values()).map(p => ({
         ...p,
         total: `R$ ${p.valor_total.toFixed(2).replace(".", ",")}`,
         itens: p.produtos.length,
       }));
+
+      // Aplicar filtros
+      if (input.filtroStatus !== "todos") pedidos = pedidos.filter(p => p.status === input.filtroStatus);
+      if (input.filtroLoja) pedidos = pedidos.filter(p => p.loja_numero === input.filtroLoja);
+      if (input.filtroProdutoCodigo) pedidos = pedidos.filter(p => p.produtos.some(pr => pr.codigo === input.filtroProdutoCodigo));
+      if (input.filtroDataInicio || input.filtroDataFim) {
+        pedidos = pedidos.filter(p => {
+          const parts = p.data.split("/");
+          if (parts.length !== 3) return true;
+          const d = new Date(+parts[2], +parts[1] - 1, +parts[0]);
+          if (input.filtroDataInicio && d < new Date(input.filtroDataInicio)) return false;
+          if (input.filtroDataFim && d > new Date(input.filtroDataFim)) return false;
+          return true;
+        });
+      }
+      if (input.filtroSearch) {
+        const s = input.filtroSearch.toLowerCase();
+        pedidos = pedidos.filter(p =>
+          p.id.toLowerCase().includes(s) ||
+          p.loja.toLowerCase().includes(s) ||
+          p.cnpj.includes(s) ||
+          p.produtos.some(pr => pr.nome.toLowerCase().includes(s) || pr.codigo.toLowerCase().includes(s) || pr.ean.includes(s))
+        );
+      }
 
       const buffer = await generateCometaPedidosExcel(pedidos, input.filtroStatus);
       const base64 = buffer.toString("base64");

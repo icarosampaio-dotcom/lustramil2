@@ -906,7 +906,15 @@ export interface CometaPedidoRelatorio {
 
 export function generateCometaPedidosPDF(
   pedidos: CometaPedidoRelatorio[],
-  filtroStatus: "pendente" | "entregue" | "todos" = "pendente"
+  filtroStatus: "pendente" | "entregue" | "todos" = "pendente",
+  filtrosAplicados?: {
+    status?: string;
+    loja?: string;
+    produto?: string;
+    dataInicio?: string;
+    dataFim?: string;
+    busca?: string;
+  }
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: 40, info: {
@@ -928,9 +936,8 @@ export function generateCometaPedidosPDF(
     const lightGray = "#f8fafc";
     const darkGray = "#374151";
 
-    const pedidosFiltrados = filtroStatus === "todos"
-      ? pedidos
-      : pedidos.filter(p => p.status === filtroStatus);
+    // Pedidos já chegam filtrados do backend
+    const pedidosFiltrados = pedidos;
 
     const totalValor = pedidosFiltrados.reduce((s, p) => s + p.valor_total, 0);
     const totalUnidades = pedidosFiltrados.reduce((s, p) => s + p.total_unidades, 0);
@@ -954,6 +961,21 @@ export function generateCometaPedidosPDF(
 
     doc.moveTo(40, 88).lineTo(555, 88).strokeColor(blue).lineWidth(2).stroke();
     doc.y = 98;
+
+    // ─── Filtros aplicados (se houver) ───────────────────────────────────────
+    if (filtrosAplicados) {
+      const filtrosAtivos: string[] = [];
+      if (filtrosAplicados.status && filtrosAplicados.status !== "todos") filtrosAtivos.push(`Status: ${filtrosAplicados.status === "pendente" ? "Pendente" : "Entregue"}`);
+      if (filtrosAplicados.loja) filtrosAtivos.push(`Loja: ${filtrosAplicados.loja}`);
+      if (filtrosAplicados.produto) filtrosAtivos.push(`Produto: ${filtrosAplicados.produto}`);
+      if (filtrosAplicados.dataInicio || filtrosAplicados.dataFim) filtrosAtivos.push(`Período: ${filtrosAplicados.dataInicio || "início"} → ${filtrosAplicados.dataFim || "fim"}`);
+      if (filtrosAplicados.busca) filtrosAtivos.push(`Busca: "${filtrosAplicados.busca}"`);
+      if (filtrosAtivos.length > 0) {
+        doc.rect(40, doc.y, 515, 20).fill("#fef9c3").stroke("#fbbf24");
+        doc.fontSize(8).fillColor("#92400e").text(`Filtros: ${filtrosAtivos.join(" | ")}`, 46, doc.y - 16, { width: 503 });
+        doc.y += 8;
+      }
+    }
 
     // ─── Cards de resumo ──────────────────────────────────────────────────────
     const cardW = 120;
