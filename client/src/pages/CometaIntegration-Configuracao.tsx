@@ -10,7 +10,7 @@ import { Loader2, CheckCircle, AlertCircle, Zap, Package, TrendingUp, Boxes, Rot
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
-const COMETA_LOGO = "https://vendas.cometasupermercados.com.br/logo.png";
+const COMETA_LOGO = "https://cometasupermercados.com.br/logo.png";
 
 export default function CometaConfiguracao() {
   const [, navigate] = useLocation();

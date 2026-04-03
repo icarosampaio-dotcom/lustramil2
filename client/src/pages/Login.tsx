@@ -7,6 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Eye, EyeOff, Loader2, Lock, User } from "lucide-react";
 import { toast } from "sonner";
 
+const LOGO_URL = "https://files.manuscdn.com/user_upload_by_module/session_file/310519663173005738/hPrFgGbhTTKiLvuW.jpeg";
+
 export default function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -36,8 +38,24 @@ export default function Login() {
       <div className="w-full max-w-md">
         {/* Logo / Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary rounded-2xl mb-4 shadow-lg">
-            <Lock className="h-8 w-8 text-primary-foreground" />
+          <div className="inline-flex items-center justify-center mb-4">
+            <img
+              src={LOGO_URL}
+              alt="LustraMil"
+              className="h-24 w-24 rounded-2xl object-cover shadow-lg border-2 border-white"
+              onError={(e) => {
+                // Fallback: mostrar ícone se a logo não carregar
+                e.currentTarget.style.display = "none";
+                const fallback = document.getElementById("logo-fallback");
+                if (fallback) fallback.style.display = "flex";
+              }}
+            />
+            <div
+              id="logo-fallback"
+              className="hidden items-center justify-center w-24 h-24 bg-primary rounded-2xl shadow-lg"
+            >
+              <Lock className="h-10 w-10 text-primary-foreground" />
+            </div>
           </div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">LustraMil</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">Sistema de Gestão de Estoque</p>
