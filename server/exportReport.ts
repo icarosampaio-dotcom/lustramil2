@@ -955,9 +955,9 @@ export function generateCometaPedidosPDF(
     }
 
     // Título à direita
-    doc.fontSize(18).fillColor(blue).text("RELATÓRIO DE PEDIDOS", 0, 38, { align: "right" });
-    doc.fontSize(10).fillColor(gray).text(`Cometa Supermercados — ${statusLabel}`, 0, 60, { align: "right" });
-    doc.fontSize(8).fillColor(gray).text(`Emitido em: ${dataGeracao}`, 0, 74, { align: "right" });
+    doc.fontSize(18).fillColor(blue).text("RELATÓRIO DE PEDIDOS", 40, 38, { width: 515, align: "right" });
+    doc.fontSize(10).fillColor(gray).text(`Cometa Supermercados — ${statusLabel}`, 40, 60, { width: 515, align: "right" });
+    doc.fontSize(8).fillColor(gray).text(`Emitido em: ${dataGeracao}`, 40, 74, { width: 515, align: "right" });
 
     doc.moveTo(40, 88).lineTo(555, 88).strokeColor(blue).lineWidth(2).stroke();
     doc.y = 98;
@@ -1075,8 +1075,8 @@ export function generateCometaPedidosPDF(
       doc.rect(40, pedY, 4, 22).fill(blue);
       doc.fontSize(9).fillColor(blue).text(`Pedido #${pedido.numero_pedido}`, 50, pedY + 4);
       doc.fontSize(8).fillColor(gray).text(`${pedido.loja}  •  ${pedido.data}  •  ${pedido.itens} produto(s)  •  ${pedido.total_unidades} unidades`, 50, pedY + 14);
-      doc.fontSize(9).fillColor(statusColor).text(pedido.status === "pendente" ? "PENDENTE" : "ENTREGUE", 0, pedY + 4, { align: "right" });
-      doc.fontSize(9).fillColor(blue).text(pedido.total, 0, pedY + 14, { align: "right" });
+      doc.fontSize(9).fillColor(statusColor).text(pedido.status === "pendente" ? "PENDENTE" : "ENTREGUE", 380, pedY + 4, { width: 175, align: "right" });
+      doc.fontSize(9).fillColor(blue).text(pedido.total, 380, pedY + 14, { width: 175, align: "right" });
       doc.y = pedY + 26;
 
       // Produtos do pedido

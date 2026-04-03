@@ -10,7 +10,7 @@ import { Loader2, CheckCircle, AlertCircle, Zap, Package, TrendingUp, Boxes, Rot
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
-const COMETA_LOGO = "https://cometasupermercados.com.br/logo.png";
+const COMETA_LOGO = "https://files.manuscdn.com/user_upload_by_module/session_file/310519663173005738/AIcxBIDxdOuHKOsN.webp";
 
 export default function CometaConfiguracao() {
   const [, navigate] = useLocation();
@@ -77,9 +77,7 @@ export default function CometaConfiguracao() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <img src={COMETA_LOGO} alt="Cometa" className="h-12 w-auto" onError={(e) => {
-          e.currentTarget.src = "https://via.placeholder.com/150x50?text=Cometa";
-        }} />
+        <img src={COMETA_LOGO} alt="Cometa Supermercados" className="h-14 w-auto object-contain" />
         <div>
           <h1 className="text-3xl font-bold">Integração Cometa Supermercados</h1>
           <p className="text-muted-foreground">Configure suas credenciais para sincronizar dados</p>
