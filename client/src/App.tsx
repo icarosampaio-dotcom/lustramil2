@@ -28,10 +28,12 @@ import CometaVendas from "./pages/CometaIntegration-Vendas";
 import CometaEstoque from "./pages/CometaIntegration-Estoque";
 import CometaDevolucoes from "./pages/CometaIntegration-Devolucoes";
 import CometaMonitoramento from "./pages/CometaIntegration-Monitoramento";
+import Login from "./pages/Login";
 
 function Router() {
   return (
     <Switch>
+      <Route path={"/login"} component={Login} />
       <Route path={"/"} component={Home} />
       <Route path={"/upload"} component={Upload} />
       <Route path={"/estoque"} component={Estoque} />
