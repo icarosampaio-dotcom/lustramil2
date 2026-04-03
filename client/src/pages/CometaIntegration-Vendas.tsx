@@ -1,33 +1,72 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Download, TrendingUp, RefreshCw, Loader2, ShoppingBag } from "lucide-react";
+import {
+  Download, TrendingUp, RefreshCw, Loader2, ShoppingBag, X,
+  FileText, FileSpreadsheet, BarChart2, LineChart as LineChartIcon,
+  Store, Calendar, Package, DollarSign
+} from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, LineChart, Line, Area, AreaChart, Cell
+} from "recharts";
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+type VendaItem = {
+  data: string;
+  ean: string;
+  cod_interno: string;
+  produto: string;
+  qtd: number;
+  venda: number;
+  custo: number;
+};
 
 type VendaLoja = {
   loja: number;
   nome_loja: string;
   cnpj: string;
-  vendas: Array<{
-    data: string;
-    ean: string;
-    cod_interno: string;
-    produto: string;
-    qtd: number;
-    venda: number;
-    custo: number;
-  }>;
+  vendas: VendaItem[];
   total_venda: number;
   total_itens: number;
 };
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const fmt = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function parseDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  // Formato dd/mm/yyyy
+  const parts = dateStr.split("/");
+  if (parts.length === 3) {
+    return new Date(+parts[2], +parts[1] - 1, +parts[0]);
+  }
+  // Formato yyyy-mm-dd
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+const COLORS = [
+  "#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6",
+  "#06b6d4", "#f97316", "#ec4899", "#14b8a6", "#a855f7",
+];
+
+// ─── Componente principal ─────────────────────────────────────────────────────
 export default function CometaVendas() {
   const [search, setSearch] = useState("");
   const [lojaFilter, setLojaFilter] = useState("todas");
+  const [dataInicio, setDataInicio] = useState("");
+  const [dataFim, setDataFim] = useState("");
+  const [tipoGrafico, setTipoGrafico] = useState<"por_loja" | "diario" | "acumulado">("por_loja");
+  const [showRelatorio, setShowRelatorio] = useState(false);
+  const [tipoRelatorio, setTipoRelatorio] = useState<"diario" | "acumulado" | "por_produto">("diario");
+  const [isExporting, setIsExporting] = useState(false);
 
   const { data: vendas = [], isLoading, refetch, isFetching } = trpc.cometa.vendas.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -35,151 +74,507 @@ export default function CometaVendas() {
   });
 
   const forceSyncMutation = trpc.cometa.forceSync.useMutation({
-    onSuccess: () => {
-      refetch();
-      toast.success("Dados de vendas atualizados!");
-    },
-    onError: () => {
-      toast.error("Erro ao atualizar dados.");
-    },
+    onSuccess: () => { refetch(); toast.success("Dados de vendas atualizados!"); },
+    onError: () => toast.error("Erro ao atualizar dados."),
   });
 
-  const handleExport = () => {
-    toast.success("Vendas exportadas para Excel!");
+  // ─── Filtros aplicados ──────────────────────────────────────────────────────
+  const allItems = useMemo(() => {
+    const items: Array<VendaItem & { nome_loja: string; loja_num: number }> = [];
+    (vendas as VendaLoja[]).forEach(v => {
+      v.vendas.forEach(item => {
+        items.push({ ...item, nome_loja: v.nome_loja, loja_num: v.loja });
+      });
+    });
+    return items;
+  }, [vendas]);
+
+  const filteredItems = useMemo(() => {
+    return allItems.filter(item => {
+      if (lojaFilter !== "todas" && item.loja_num !== parseInt(lojaFilter)) return false;
+      if (search && !item.produto.toLowerCase().includes(search.toLowerCase()) &&
+          !item.ean?.includes(search) && !item.cod_interno?.includes(search)) return false;
+      if (dataInicio || dataFim) {
+        const d = parseDate(item.data);
+        if (!d) return true;
+        if (dataInicio && d < new Date(dataInicio + "T00:00:00")) return false;
+        if (dataFim && d > new Date(dataFim + "T23:59:59")) return false;
+      }
+      return true;
+    });
+  }, [allItems, lojaFilter, search, dataInicio, dataFim]);
+
+  // ─── Métricas ───────────────────────────────────────────────────────────────
+  const totalVendas = useMemo(() => filteredItems.reduce((s, i) => s + i.venda, 0), [filteredItems]);
+  const totalItens = useMemo(() => filteredItems.reduce((s, i) => s + i.qtd, 0), [filteredItems]);
+  const ticketMedio = useMemo(() => {
+    const dias = new Set(filteredItems.map(i => i.data)).size;
+    return dias > 0 ? totalVendas / dias : 0;
+  }, [filteredItems, totalVendas]);
+  const lojaTop = useMemo(() => {
+    const map = new Map<string, number>();
+    filteredItems.forEach(i => map.set(i.nome_loja, (map.get(i.nome_loja) || 0) + i.venda));
+    let best = { nome: "—", valor: 0 };
+    map.forEach((v, k) => { if (v > best.valor) best = { nome: k, valor: v }; });
+    return best;
+  }, [filteredItems]);
+
+  // ─── Dados para gráficos ────────────────────────────────────────────────────
+
+  // Gráfico 1: Vendas por loja (barras horizontais)
+  const chartPorLoja = useMemo(() => {
+    const map = new Map<string, number>();
+    filteredItems.forEach(i => map.set(i.nome_loja, (map.get(i.nome_loja) || 0) + i.venda));
+    return Array.from(map.entries())
+      .map(([nome, valor]) => ({
+        nome: nome.replace(/^\d+ - /, "").substring(0, 20),
+        valor: parseFloat(valor.toFixed(2)),
+      }))
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 15);
+  }, [filteredItems]);
+
+  // Gráfico 2: Vendas diárias
+  const chartDiario = useMemo(() => {
+    const map = new Map<string, number>();
+    filteredItems.forEach(i => {
+      const d = i.data || "—";
+      map.set(d, (map.get(d) || 0) + i.venda);
+    });
+    return Array.from(map.entries())
+      .map(([data, valor]) => ({ data, valor: parseFloat(valor.toFixed(2)) }))
+      .sort((a, b) => {
+        const da = parseDate(a.data), db = parseDate(b.data);
+        if (!da || !db) return 0;
+        return da.getTime() - db.getTime();
+      });
+  }, [filteredItems]);
+
+  // Gráfico 3: Vendas acumuladas
+  const chartAcumulado = useMemo(() => {
+    let acc = 0;
+    return chartDiario.map(d => {
+      acc += d.valor;
+      return { data: d.data, diario: d.valor, acumulado: parseFloat(acc.toFixed(2)) };
+    });
+  }, [chartDiario]);
+
+  // ─── Chips de filtros ativos ─────────────────────────────────────────────────
+  const activeFilters: Array<{ label: string; onRemove: () => void }> = [];
+  if (lojaFilter !== "todas") {
+    const loja = (vendas as VendaLoja[]).find(v => v.loja === parseInt(lojaFilter));
+    activeFilters.push({ label: `Loja: ${loja?.nome_loja || lojaFilter}`, onRemove: () => setLojaFilter("todas") });
+  }
+  if (dataInicio) activeFilters.push({ label: `De: ${dataInicio}`, onRemove: () => setDataInicio("") });
+  if (dataFim) activeFilters.push({ label: `Até: ${dataFim}`, onRemove: () => setDataFim("") });
+  if (search) activeFilters.push({ label: `Busca: "${search}"`, onRemove: () => setSearch("") });
+
+  // ─── Exportação ─────────────────────────────────────────────────────────────
+  const handleExportPDF = async () => {
+    setIsExporting(true);
+    try {
+      const res = await fetch("/api/trpc/cometa.exportVendasPDF", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          json: {
+            tipo: tipoRelatorio,
+            filtroLoja: lojaFilter !== "todas" ? parseInt(lojaFilter) : undefined,
+            filtroDataInicio: dataInicio || undefined,
+            filtroDataFim: dataFim || undefined,
+          }
+        }),
+      });
+      const data = await res.json();
+      const result = data?.result?.data?.json;
+      if (!result?.base64) throw new Error("Sem dados");
+      const bytes = Uint8Array.from(atob(result.base64), c => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = result.filename; a.click();
+      URL.revokeObjectURL(url);
+      toast.success("PDF gerado com sucesso!");
+    } catch {
+      toast.error("Erro ao gerar PDF.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
-  const filteredVendas = vendas.filter((v: VendaLoja) => {
-    return lojaFilter === "todas" || v.nome_loja === lojaFilter;
-  });
+  const handleExportExcel = async () => {
+    setIsExporting(true);
+    try {
+      const res = await fetch("/api/trpc/cometa.exportVendasExcel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          json: {
+            tipo: tipoRelatorio,
+            filtroLoja: lojaFilter !== "todas" ? parseInt(lojaFilter) : undefined,
+            filtroDataInicio: dataInicio || undefined,
+            filtroDataFim: dataFim || undefined,
+          }
+        }),
+      });
+      const data = await res.json();
+      const result = data?.result?.data?.json;
+      if (!result?.base64) throw new Error("Sem dados");
+      const bytes = Uint8Array.from(atob(result.base64), c => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: result.mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = result.filename; a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Excel gerado com sucesso!");
+    } catch {
+      toast.error("Erro ao gerar Excel.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
-  const chartData = vendas.map((v: VendaLoja) => ({
-    loja: v.nome_loja.replace(/^\d+ - /, "").substring(0, 12),
-    vendas: parseFloat(v.total_venda.toFixed(2)),
-    itens: v.total_itens,
-  })).sort((a: any, b: any) => b.vendas - a.vendas);
-
-  const allVendaItems = filteredVendas.flatMap((v: VendaLoja) =>
-    v.vendas
-      .filter(item => item.produto.toLowerCase().includes(search.toLowerCase()))
-      .map(item => ({
-        ...item,
-        nome_loja: v.nome_loja,
-        loja_num: v.loja,
-      }))
-  );
-
-  const totalGeral = vendas.reduce((sum: number, v: VendaLoja) => sum + v.total_venda, 0);
-  const totalItens = vendas.reduce((sum: number, v: VendaLoja) => sum + v.total_itens, 0);
-  const totalLojas = vendas.length;
-
+  // ─── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      {/* Cabeçalho */}
+      <div className="flex justify-between items-center flex-wrap gap-3">
         <div>
           <h1 className="text-3xl font-bold">Vendas Cometa</h1>
           <p className="text-muted-foreground">Vendas reais sincronizadas do Cometa Supermercados</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button variant="outline" onClick={() => forceSyncMutation.mutate()} disabled={forceSyncMutation.isPending || isFetching}>
-            {(forceSyncMutation.isPending || isFetching) ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
+            {(forceSyncMutation.isPending || isFetching) ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
             Atualizar
           </Button>
-          <Button onClick={handleExport}>
-            <Download className="h-4 w-4 mr-2" />
-            Exportar
+          <Button onClick={() => setShowRelatorio(!showRelatorio)} variant={showRelatorio ? "default" : "outline"}>
+            <FileText className="h-4 w-4 mr-2" />
+            {showRelatorio ? "Fechar Relatório" : "Gerar Relatório"}
           </Button>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total de Vendas</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {isLoading ? "..." : `R$ ${totalGeral.toFixed(2).replace(".", ",")}`}
-            </div>
-            <p className="text-xs text-muted-foreground">Periodo atual</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Lojas com Vendas</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{isLoading ? "..." : totalLojas}</div>
-            <p className="text-xs text-muted-foreground">Lojas ativas</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Unidades Vendidas</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{isLoading ? "..." : totalItens}</div>
-            <p className="text-xs text-muted-foreground">Total de itens</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Media por Loja</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {isLoading ? "..." : totalLojas > 0 ? `R$ ${(totalGeral / totalLojas).toFixed(2).replace(".", ",")}` : "R$ 0,00"}
-            </div>
-            <p className="text-xs text-muted-foreground">Media de vendas</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {!isLoading && chartData.length > 0 && (
-        <Card>
+      {/* Painel de Relatório */}
+      {showRelatorio && (
+        <Card className="border-blue-200 bg-blue-50">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5" />
-              Vendas por Loja (R$)
+            <CardTitle className="text-blue-800 flex items-center gap-2">
+              <FileText className="h-5 w-5" /> Emissão de Relatório de Vendas
             </CardTitle>
+            <CardDescription className="text-blue-700">
+              Os filtros ativos serão aplicados ao relatório gerado
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 60 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="loja" angle={-45} textAnchor="end" interval={0} tick={{ fontSize: 11 }} />
-                <YAxis tickFormatter={(v) => `R$${v}`} />
-                <Tooltip formatter={(value: any) => [`R$ ${Number(value).toFixed(2)}`, "Vendas"]} />
-                <Legend />
-                <Bar dataKey="vendas" fill="#22c55e" name="Vendas (R$)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label className="text-blue-800">Tipo de Relatório</Label>
+                <Select value={tipoRelatorio} onValueChange={(v: any) => setTipoRelatorio(v)}>
+                  <SelectTrigger className="bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="diario">📅 Venda Diária (por dia)</SelectItem>
+                    <SelectItem value="acumulado">📈 Venda Acumulada (cumulativo)</SelectItem>
+                    <SelectItem value="por_produto">📦 Por Produto (ranking)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-blue-800">Filtros Ativos</Label>
+                <div className="flex flex-wrap gap-1 min-h-9 items-center">
+                  {activeFilters.length === 0 ? (
+                    <span className="text-sm text-blue-600">Sem filtros — relatório completo</span>
+                  ) : activeFilters.map((f, i) => (
+                    <Badge key={i} variant="secondary" className="gap-1 bg-blue-100 text-blue-800">
+                      {f.label}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-blue-800">Resumo</Label>
+                <div className="text-sm text-blue-700 space-y-0.5">
+                  <p><strong>{filteredItems.length}</strong> registros de venda</p>
+                  <p>Total: <strong>{fmt(totalVendas)}</strong></p>
+                  <p>Período: <strong>{chartDiario.length} dias</strong></p>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button onClick={handleExportPDF} disabled={isExporting || filteredItems.length === 0} className="bg-red-600 hover:bg-red-700">
+                {isExporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileText className="h-4 w-4 mr-2" />}
+                Baixar PDF
+              </Button>
+              <Button onClick={handleExportExcel} disabled={isExporting || filteredItems.length === 0} className="bg-green-700 hover:bg-green-800">
+                {isExporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 mr-2" />}
+                Baixar Excel
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
 
+      {/* Cards de métricas */}
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription className="flex items-center gap-1 text-green-600">
+              <DollarSign className="h-3.5 w-3.5" /> Total de Vendas
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-green-600">{isLoading ? "..." : fmt(totalVendas)}</p>
+            <p className="text-xs text-muted-foreground mt-1">no período filtrado</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription className="flex items-center gap-1">
+              <Calendar className="h-3.5 w-3.5" /> Média Diária
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{isLoading ? "..." : fmt(ticketMedio)}</p>
+            <p className="text-xs text-muted-foreground mt-1">por dia de venda</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription className="flex items-center gap-1">
+              <Package className="h-3.5 w-3.5" /> Unidades Vendidas
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{isLoading ? "..." : totalItens.toLocaleString("pt-BR")}</p>
+            <p className="text-xs text-muted-foreground mt-1">total de itens</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription className="flex items-center gap-1 text-blue-600">
+              <Store className="h-3.5 w-3.5" /> Maior Loja
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm font-bold text-blue-600 truncate">{isLoading ? "..." : lojaTop.nome.replace(/^\d+ - /, "").substring(0, 18)}</p>
+            <p className="text-xs text-muted-foreground mt-1">{isLoading ? "" : fmt(lojaTop.valor)}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filtros */}
       <Card>
-        <CardHeader><CardTitle>Filtros</CardTitle></CardHeader>
-        <CardContent className="flex gap-4 flex-wrap">
-          <div className="flex-1 min-w-48">
-            <Input
-              placeholder="Buscar por produto..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Filtros</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Buscar produto / EAN</Label>
+              <Input placeholder="Nome, código ou EAN..." value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Loja</Label>
+              <Select value={lojaFilter} onValueChange={setLojaFilter}>
+                <SelectTrigger><SelectValue placeholder="Todas as lojas" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas as lojas</SelectItem>
+                  {(vendas as VendaLoja[]).map(v => (
+                    <SelectItem key={v.loja} value={String(v.loja)}>{v.nome_loja}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Data inicial</Label>
+              <Input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Data final</Label>
+              <Input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} />
+            </div>
           </div>
-          <Select value={lojaFilter} onValueChange={setLojaFilter}>
-            <SelectTrigger className="w-48"><SelectValue placeholder="Todas as lojas" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todas">Todas as lojas</SelectItem>
-              {vendas.map((v: VendaLoja) => (
-                <SelectItem key={v.loja} value={v.nome_loja}>{v.nome_loja}</SelectItem>
+
+          {/* Chips de filtros ativos */}
+          {activeFilters.length > 0 && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {activeFilters.map((f, i) => (
+                <Badge key={i} variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/10" onClick={f.onRemove}>
+                  {f.label} <X className="h-3 w-3" />
+                </Badge>
               ))}
-            </SelectContent>
-          </Select>
+              <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground" onClick={() => {
+                setSearch(""); setLojaFilter("todas"); setDataInicio(""); setDataFim("");
+              }}>
+                Limpar tudo
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
+      {/* Seletor de gráfico */}
+      <div className="flex gap-2 flex-wrap">
+        <Button
+          variant={tipoGrafico === "por_loja" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setTipoGrafico("por_loja")}
+        >
+          <BarChart2 className="h-4 w-4 mr-1" /> Por Loja
+        </Button>
+        <Button
+          variant={tipoGrafico === "diario" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setTipoGrafico("diario")}
+        >
+          <BarChart2 className="h-4 w-4 mr-1" /> Venda Diária
+        </Button>
+        <Button
+          variant={tipoGrafico === "acumulado" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setTipoGrafico("acumulado")}
+        >
+          <LineChartIcon className="h-4 w-4 mr-1" /> Acumulado
+        </Button>
+      </div>
+
+      {/* Gráficos */}
+      {!isLoading && (
+        <>
+          {tipoGrafico === "por_loja" && chartPorLoja.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5 text-green-600" /> Vendas por Loja (R$)
+                </CardTitle>
+                <CardDescription>Top {chartPorLoja.length} lojas por volume de vendas no período</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={Math.max(300, chartPorLoja.length * 36)}>
+                  <BarChart
+                    data={chartPorLoja}
+                    layout="vertical"
+                    margin={{ top: 5, right: 80, left: 10, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis
+                      type="number"
+                      tickFormatter={v => `R$${(v / 1000).toFixed(0)}k`}
+                      tick={{ fontSize: 11 }}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="nome"
+                      width={160}
+                      tick={{ fontSize: 11 }}
+                    />
+                    <Tooltip
+                      formatter={(value: any) => [fmt(Number(value)), "Vendas"]}
+                      contentStyle={{ fontSize: 12 }}
+                    />
+                    <Bar dataKey="valor" name="Vendas (R$)" radius={[0, 4, 4, 0]} maxBarSize={28}>
+                      {chartPorLoja.map((_, index) => (
+                        <Cell key={index} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {tipoGrafico === "diario" && chartDiario.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart2 className="h-5 w-5 text-blue-600" /> Venda Diária (R$)
+                </CardTitle>
+                <CardDescription>Volume de vendas por dia no período selecionado</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart
+                    data={chartDiario}
+                    margin={{ top: 5, right: 20, left: 10, bottom: chartDiario.length > 10 ? 60 : 20 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="data"
+                      tick={{ fontSize: 11 }}
+                      angle={chartDiario.length > 10 ? -40 : 0}
+                      textAnchor={chartDiario.length > 10 ? "end" : "middle"}
+                      interval={chartDiario.length > 20 ? Math.floor(chartDiario.length / 15) : 0}
+                    />
+                    <YAxis tickFormatter={v => `R$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
+                    <Tooltip
+                      formatter={(value: any) => [fmt(Number(value)), "Vendas"]}
+                      contentStyle={{ fontSize: 12 }}
+                    />
+                    <Bar dataKey="valor" name="Vendas (R$)" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {tipoGrafico === "acumulado" && chartAcumulado.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <LineChartIcon className="h-5 w-5 text-purple-600" /> Venda Acumulada (R$)
+                </CardTitle>
+                <CardDescription>Evolução cumulativa das vendas no período</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={320}>
+                  <AreaChart
+                    data={chartAcumulado}
+                    margin={{ top: 5, right: 20, left: 10, bottom: chartAcumulado.length > 10 ? 60 : 20 }}
+                  >
+                    <defs>
+                      <linearGradient id="colorAcc" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.02} />
+                      </linearGradient>
+                      <linearGradient id="colorDia" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="data"
+                      tick={{ fontSize: 11 }}
+                      angle={chartAcumulado.length > 10 ? -40 : 0}
+                      textAnchor={chartAcumulado.length > 10 ? "end" : "middle"}
+                      interval={chartAcumulado.length > 20 ? Math.floor(chartAcumulado.length / 15) : 0}
+                    />
+                    <YAxis tickFormatter={v => `R$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
+                    <Tooltip
+                      formatter={(value: any, name: string) => [fmt(Number(value)), name === "acumulado" ? "Acumulado" : "Diário"]}
+                      contentStyle={{ fontSize: 12 }}
+                    />
+                    <Legend />
+                    <Area type="monotone" dataKey="diario" name="Diário" stroke="#3b82f6" fill="url(#colorDia)" strokeWidth={2} dot={false} />
+                    <Area type="monotone" dataKey="acumulado" name="Acumulado" stroke="#8b5cf6" fill="url(#colorAcc)" strokeWidth={2.5} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+
+      {/* Tabela de vendas */}
       <Card>
         <CardHeader>
-          <CardTitle>Detalhamento de Vendas</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <ShoppingBag className="h-5 w-5" /> Detalhamento de Vendas
+          </CardTitle>
           <CardDescription>
-            {isLoading ? "Carregando dados da API do Cometa..." : `${allVendaItems.length} venda(s) encontrada(s)`}
+            {isLoading ? "Carregando dados da API do Cometa..." : `${filteredItems.length} registro(s) encontrado(s)`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -188,45 +583,42 @@ export default function CometaVendas() {
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               <span className="ml-3 text-muted-foreground">Carregando vendas do Cometa...</span>
             </div>
-          ) : allVendaItems.length === 0 ? (
+          ) : filteredItems.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <ShoppingBag className="h-12 w-12 mx-auto mb-4 opacity-30" />
-              <p>Nenhuma venda encontrada</p>
+              <p className="font-medium">Nenhuma venda encontrada</p>
+              <p className="text-sm mt-1">Ajuste os filtros para ver os dados</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b text-left">
-                    <th className="pb-2 font-medium text-muted-foreground">Produto</th>
-                    <th className="pb-2 font-medium text-muted-foreground">Loja</th>
-                    <th className="pb-2 font-medium text-muted-foreground">Data</th>
-                    <th className="pb-2 font-medium text-muted-foreground text-right">Qtd</th>
-                    <th className="pb-2 font-medium text-muted-foreground text-right">Venda (R$)</th>
-                    <th className="pb-2 font-medium text-muted-foreground text-right">Custo (R$)</th>
-                    <th className="pb-2 font-medium text-muted-foreground text-right">Margem</th>
+                  <tr className="border-b bg-muted/30">
+                    <th className="py-2 px-3 text-left font-semibold text-muted-foreground">Produto</th>
+                    <th className="py-2 px-3 text-left font-semibold text-muted-foreground">Loja</th>
+                    <th className="py-2 px-3 text-left font-semibold text-muted-foreground">Data</th>
+                    <th className="py-2 px-3 text-right font-semibold text-muted-foreground">Qtd</th>
+                    <th className="py-2 px-3 text-right font-semibold text-muted-foreground">Venda</th>
+                    <th className="py-2 px-3 text-right font-semibold text-muted-foreground">Custo</th>
+                    <th className="py-2 px-3 text-right font-semibold text-muted-foreground">Margem</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {allVendaItems.map((item: any, idx: number) => {
+                  {filteredItems.slice(0, 200).map((item, idx) => {
                     const margem = item.venda > 0 ? ((item.venda - item.custo) / item.venda * 100) : 0;
                     return (
-                      <tr key={idx} className="border-b hover:bg-muted/50">
-                        <td className="py-2">
+                      <tr key={idx} className={`border-b hover:bg-muted/40 ${idx % 2 === 0 ? "" : "bg-muted/10"}`}>
+                        <td className="py-2 px-3">
                           <p className="font-medium">{item.produto}</p>
-                          <p className="text-xs text-muted-foreground">EAN: {item.ean?.replace(",", "")}</p>
+                          <p className="text-xs text-muted-foreground">EAN: {item.ean?.replace(",", "")} | Cód: {item.cod_interno}</p>
                         </td>
-                        <td className="py-2 text-sm">{item.nome_loja}</td>
-                        <td className="py-2 text-muted-foreground">{item.data}</td>
-                        <td className="py-2 text-right">{item.qtd}</td>
-                        <td className="py-2 text-right font-bold text-green-600">
-                          R$ {item.venda.toFixed(2).replace(".", ",")}
-                        </td>
-                        <td className="py-2 text-right text-muted-foreground">
-                          R$ {item.custo.toFixed(2).replace(".", ",")}
-                        </td>
-                        <td className="py-2 text-right">
-                          <span className={margem >= 30 ? "text-green-600 font-medium" : margem >= 15 ? "text-yellow-600" : "text-red-600"}>
+                        <td className="py-2 px-3 text-sm text-muted-foreground">{item.nome_loja}</td>
+                        <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{item.data}</td>
+                        <td className="py-2 px-3 text-right font-medium">{item.qtd}</td>
+                        <td className="py-2 px-3 text-right font-bold text-green-600">{fmt(item.venda)}</td>
+                        <td className="py-2 px-3 text-right text-muted-foreground">{fmt(item.custo)}</td>
+                        <td className="py-2 px-3 text-right">
+                          <span className={`font-medium ${margem >= 30 ? "text-green-600" : margem >= 15 ? "text-yellow-600" : "text-red-600"}`}>
                             {margem.toFixed(1)}%
                           </span>
                         </td>
@@ -235,6 +627,11 @@ export default function CometaVendas() {
                   })}
                 </tbody>
               </table>
+              {filteredItems.length > 200 && (
+                <p className="text-center text-xs text-muted-foreground mt-3 py-2 border-t">
+                  Exibindo 200 de {filteredItems.length} registros. Use os filtros para refinar os resultados.
+                </p>
+              )}
             </div>
           )}
         </CardContent>

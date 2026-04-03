@@ -10,7 +10,7 @@ import { nanoid } from "nanoid";
 import * as db from "./db";
 import { logAudit, isAllowedFileType, isAllowedFileSize, sanitizeString } from "./security";
 import { parseNFeXml, getEntityFromNFe } from "./nfeParser";
-import { generateExcel, generatePDF, generatePayableExcel, generateReceivableExcel, generateCashExcel, generateEntityGroupExcel, generateMaterialGroupExcel, generateRankingExcel, generateCometaPedidosPDF, generateCometaPedidosExcel, type CometaPedidoRelatorio } from "./exportReport";
+import { generateExcel, generatePDF, generatePayableExcel, generateReceivableExcel, generateCashExcel, generateEntityGroupExcel, generateMaterialGroupExcel, generateRankingExcel, generateCometaPedidosPDF, generateCometaPedidosExcel, generateCometaVendasPDF, generateCometaVendasExcel, type CometaPedidoRelatorio } from "./exportReport";
 import { cometaSyncService } from "./cometa-sync-service";
 
 // Helper to get IP from context
@@ -1719,6 +1719,106 @@ export const appRouter = router({
       return {
         base64,
         filename: `pedidos-cometa-${statusLabel}-${new Date().toISOString().split("T")[0]}.xlsx`,
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      };
+    }),
+
+    exportVendasPDF: protectedProcedure.input(z.object({
+      tipo: z.enum(["diario", "acumulado", "por_produto"]).default("diario"),
+      filtroLoja: z.number().optional(),
+      filtroDataInicio: z.string().optional(),
+      filtroDataFim: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      const vendas = await cometaSyncService.getVendas();
+      // Montar lista flat de itens
+      let items: Array<{ data: string; ean: string; cod_interno: string; produto: string; qtd: number; venda: number; custo: number; nome_loja: string; loja_num: number }> = [];
+      vendas.forEach((v: any) => {
+        v.VENDAS.forEach((i: any) => {
+          items.push({
+            data: i.DATA,
+            ean: i.EAN,
+            cod_interno: i.COD_INTERNO,
+            produto: i.PRODUTO,
+            qtd: i.QTD,
+            venda: i.VENDA,
+            custo: i.CUSTO,
+            nome_loja: v.LOJA.NOME,
+            loja_num: v.LOJA.LOJA,
+          });
+        });
+      });
+      // Aplicar filtros
+      if (input.filtroLoja) items = items.filter(i => i.loja_num === input.filtroLoja);
+      if (input.filtroDataInicio || input.filtroDataFim) {
+        items = items.filter(i => {
+          const parts = i.data.split("/");
+          if (parts.length !== 3) return true;
+          const d = new Date(+parts[2], +parts[1] - 1, +parts[0]);
+          if (input.filtroDataInicio && d < new Date(input.filtroDataInicio)) return false;
+          if (input.filtroDataFim && d > new Date(input.filtroDataFim)) return false;
+          return true;
+        });
+      }
+      const lojaLabel = input.filtroLoja ? vendas.find((v: any) => v.LOJA.LOJA === input.filtroLoja)?.LOJA.NOME : undefined;
+      const buffer = generateCometaVendasPDF(items, input.tipo, {
+        loja: lojaLabel,
+        dataInicio: input.filtroDataInicio,
+        dataFim: input.filtroDataFim,
+      });
+      const base64 = buffer.toString("base64");
+      const tipoLabel = input.tipo === "diario" ? "diario" : input.tipo === "acumulado" ? "acumulado" : "por-produto";
+      return {
+        base64,
+        filename: `vendas-cometa-${tipoLabel}-${new Date().toISOString().split("T")[0]}.pdf`,
+        mimeType: "application/pdf",
+      };
+    }),
+
+    exportVendasExcel: protectedProcedure.input(z.object({
+      tipo: z.enum(["diario", "acumulado", "por_produto"]).default("diario"),
+      filtroLoja: z.number().optional(),
+      filtroDataInicio: z.string().optional(),
+      filtroDataFim: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      const vendas = await cometaSyncService.getVendas();
+      let items: Array<{ data: string; ean: string; cod_interno: string; produto: string; qtd: number; venda: number; custo: number; nome_loja: string; loja_num: number }> = [];
+      vendas.forEach((v: any) => {
+        v.VENDAS.forEach((i: any) => {
+          items.push({
+            data: i.DATA,
+            ean: i.EAN,
+            cod_interno: i.COD_INTERNO,
+            produto: i.PRODUTO,
+            qtd: i.QTD,
+            venda: i.VENDA,
+            custo: i.CUSTO,
+            nome_loja: v.LOJA.NOME,
+            loja_num: v.LOJA.LOJA,
+          });
+        });
+      });
+      if (input.filtroLoja) items = items.filter(i => i.loja_num === input.filtroLoja);
+      if (input.filtroDataInicio || input.filtroDataFim) {
+        items = items.filter(i => {
+          const parts = i.data.split("/");
+          if (parts.length !== 3) return true;
+          const d = new Date(+parts[2], +parts[1] - 1, +parts[0]);
+          if (input.filtroDataInicio && d < new Date(input.filtroDataInicio)) return false;
+          if (input.filtroDataFim && d > new Date(input.filtroDataFim)) return false;
+          return true;
+        });
+      }
+      const lojaLabel = input.filtroLoja ? vendas.find((v: any) => v.LOJA.LOJA === input.filtroLoja)?.LOJA.NOME : undefined;
+      const buffer = await generateCometaVendasExcel(items, input.tipo, {
+        loja: lojaLabel,
+        dataInicio: input.filtroDataInicio,
+        dataFim: input.filtroDataFim,
+      });
+      const base64 = buffer.toString("base64");
+      const tipoLabel = input.tipo === "diario" ? "diario" : input.tipo === "acumulado" ? "acumulado" : "por-produto";
+      return {
+        base64,
+        filename: `vendas-cometa-${tipoLabel}-${new Date().toISOString().split("T")[0]}.xlsx`,
         mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       };
     }),

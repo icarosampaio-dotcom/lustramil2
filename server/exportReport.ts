@@ -1245,3 +1245,343 @@ export async function generateCometaPedidosExcel(
   const buf = await workbook.xlsx.writeBuffer();
   return Buffer.from(buf);
 }
+
+
+// ─── Relatório de Vendas Cometa ───────────────────────────────────────────────
+
+type VendaItemExport = {
+  data: string;
+  ean: string;
+  cod_interno: string;
+  produto: string;
+  qtd: number;
+  venda: number;
+  custo: number;
+  nome_loja: string;
+  loja_num: number;
+};
+
+function parseVendaDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const parts = dateStr.split("/");
+  if (parts.length === 3) return new Date(+parts[2], +parts[1] - 1, +parts[0]);
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+export function generateCometaVendasPDF(
+  items: VendaItemExport[],
+  tipo: "diario" | "acumulado" | "por_produto",
+  filtros: { loja?: string; dataInicio?: string; dataFim?: string }
+): Buffer {
+  const PDFDocument = require("pdfkit");
+  const doc = new PDFDocument({ size: "A4", margin: 0, bufferPages: true });
+  const chunks: Buffer[] = [];
+  doc.on("data", (c: Buffer) => chunks.push(c));
+
+  const blue = "#1e3a8a";
+  const lightBlue = "#eff6ff";
+  const green = "#16a34a";
+  const gray = "#6b7280";
+  const darkGray = "#374151";
+  const orange = "#ea580c";
+
+  const fmtCurrency = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const dataGeracao = new Date().toLocaleString("pt-BR");
+  const tipoLabel = tipo === "diario" ? "Venda Diária" : tipo === "acumulado" ? "Venda Acumulada" : "Por Produto";
+
+  // ── Página 1: Capa / Resumo ──────────────────────────────────────────────
+  doc.rect(0, 0, 595, 100).fill(blue);
+  doc.fontSize(20).fillColor("white").text("RELATÓRIO DE VENDAS", 40, 28, { width: 515, align: "left" });
+  doc.fontSize(10).fillColor("#93c5fd").text(`Cometa Supermercados — ${tipoLabel}`, 40, 56);
+  doc.fontSize(8).fillColor("#bfdbfe").text(`Emitido em: ${dataGeracao}`, 40, 72);
+
+  // Filtros aplicados
+  doc.y = 110;
+  const filtroTextos: string[] = [];
+  if (filtros.loja) filtroTextos.push(`Loja: ${filtros.loja}`);
+  if (filtros.dataInicio) filtroTextos.push(`De: ${filtros.dataInicio}`);
+  if (filtros.dataFim) filtroTextos.push(`Até: ${filtros.dataFim}`);
+  if (filtroTextos.length > 0) {
+    doc.fontSize(8).fillColor(gray).text(`Filtros: ${filtroTextos.join(" | ")}`, 40, doc.y, { width: 515 });
+    doc.moveDown(0.5);
+  }
+
+  // Métricas resumo
+  const totalVenda = items.reduce((s, i) => s + i.venda, 0);
+  const totalCusto = items.reduce((s, i) => s + i.custo, 0);
+  const totalQtd = items.reduce((s, i) => s + i.qtd, 0);
+  const margem = totalVenda > 0 ? ((totalVenda - totalCusto) / totalVenda * 100) : 0;
+  const diasUnicos = new Set(items.map(i => i.data)).size;
+  const lojasUnicas = new Set(items.map(i => i.nome_loja)).size;
+
+  const cardY = doc.y + 8;
+  const cardW = 120; const cardH = 50;
+  const cards = [
+    { label: "TOTAL VENDAS", value: fmtCurrency(totalVenda), color: green },
+    { label: "TOTAL CUSTO", value: fmtCurrency(totalCusto), color: orange },
+    { label: "MARGEM", value: `${margem.toFixed(1)}%`, color: blue },
+    { label: "UNIDADES", value: totalQtd.toString(), color: "#7c3aed" },
+  ];
+  cards.forEach((card, i) => {
+    const x = 40 + i * (cardW + 8);
+    doc.rect(x, cardY, cardW, cardH).fillAndStroke(lightBlue, blue);
+    doc.fontSize(7).fillColor(gray).text(card.label, x + 6, cardY + 7, { width: cardW - 12 });
+    doc.fontSize(12).fillColor(card.color).text(card.value, x + 6, cardY + 20, { width: cardW - 12 });
+  });
+  doc.y = cardY + cardH + 10;
+  doc.fontSize(8).fillColor(gray).text(`${diasUnicos} dia(s) de venda | ${lojasUnicas} loja(s) | ${items.length} registros`, 40, doc.y);
+  doc.moveDown(1);
+
+  if (tipo === "diario" || tipo === "acumulado") {
+    // Agrupamento por data
+    const byDate = new Map<string, { venda: number; custo: number; qtd: number }>();
+    items.forEach(i => {
+      const cur = byDate.get(i.data) || { venda: 0, custo: 0, qtd: 0 };
+      cur.venda += i.venda; cur.custo += i.custo; cur.qtd += i.qtd;
+      byDate.set(i.data, cur);
+    });
+    const sorted = Array.from(byDate.entries()).sort((a, b) => {
+      const da = parseVendaDate(a[0]), db = parseVendaDate(b[0]);
+      if (!da || !db) return 0;
+      return da.getTime() - db.getTime();
+    });
+
+    doc.fontSize(11).fillColor(blue).text(tipo === "diario" ? "VENDA DIÁRIA" : "VENDA ACUMULADA", 40, doc.y);
+    doc.moveDown(0.4);
+
+    const tX = 40;
+    const cols = [80, 140, 120, 90, 85];
+    const headers = ["Data", "Venda (R$)", "Custo (R$)", "Margem", "Qtd"];
+    const hY = doc.y;
+    doc.rect(tX, hY, 515, 16).fill(blue);
+    let xh = tX;
+    headers.forEach((h, i) => {
+      doc.fontSize(8).fillColor("white").text(h, xh + 3, hY + 4, { width: cols[i] - 6, align: i > 0 ? "right" : "left" });
+      xh += cols[i];
+    });
+    doc.y = hY + 16;
+
+    let accVenda = 0;
+    sorted.forEach(([data, d], idx) => {
+      if (doc.y > 750) { doc.addPage(); doc.y = 40; }
+      accVenda += d.venda;
+      const rowY = doc.y;
+      const bg = idx % 2 === 0 ? "white" : "#f9fafb";
+      doc.rect(tX, rowY, 515, 14).fill(bg);
+      const mg = d.venda > 0 ? ((d.venda - d.custo) / d.venda * 100) : 0;
+      const vals = [
+        data,
+        fmtCurrency(tipo === "acumulado" ? accVenda : d.venda),
+        fmtCurrency(d.custo),
+        `${mg.toFixed(1)}%`,
+        d.qtd.toString(),
+      ];
+      let xr = tX;
+      vals.forEach((v, i) => {
+        doc.fontSize(8).fillColor(darkGray).text(v, xr + 3, rowY + 3, { width: cols[i] - 6, align: i > 0 ? "right" : "left" });
+        xr += cols[i];
+      });
+      doc.y = rowY + 14;
+    });
+
+    // Total
+    const totY = doc.y;
+    doc.rect(tX, totY, 515, 16).fill("#dbeafe");
+    doc.fontSize(8).fillColor(blue).text("TOTAL", tX + 3, totY + 4, { width: 80 });
+    doc.fontSize(8).fillColor(blue).text(fmtCurrency(totalVenda), tX + 80, totY + 4, { width: 140, align: "right" });
+    doc.fontSize(8).fillColor(blue).text(fmtCurrency(totalCusto), tX + 220, totY + 4, { width: 120, align: "right" });
+    doc.fontSize(8).fillColor(blue).text(`${margem.toFixed(1)}%`, tX + 340, totY + 4, { width: 90, align: "right" });
+    doc.fontSize(8).fillColor(blue).text(totalQtd.toString(), tX + 430, totY + 4, { width: 85, align: "right" });
+    doc.y = totY + 24;
+
+  } else {
+    // Por produto
+    const byProd = new Map<string, { nome: string; ean: string; cod: string; venda: number; custo: number; qtd: number }>();
+    items.forEach(i => {
+      const key = i.cod_interno || i.ean || i.produto;
+      const cur = byProd.get(key) || { nome: i.produto, ean: i.ean, cod: i.cod_interno, venda: 0, custo: 0, qtd: 0 };
+      cur.venda += i.venda; cur.custo += i.custo; cur.qtd += i.qtd;
+      byProd.set(key, cur);
+    });
+    const sorted = Array.from(byProd.values()).sort((a, b) => b.venda - a.venda);
+
+    doc.fontSize(11).fillColor(blue).text("RANKING DE PRODUTOS", 40, doc.y);
+    doc.moveDown(0.4);
+
+    const tX = 40;
+    const cols = [40, 215, 80, 120, 100, 80];
+    const headers = ["#", "Produto", "Cód.", "Venda (R$)", "Custo (R$)", "Qtd"];
+    const hY = doc.y;
+    doc.rect(tX, hY, 515, 16).fill(blue);
+    let xh = tX;
+    headers.forEach((h, i) => {
+      doc.fontSize(8).fillColor("white").text(h, xh + 3, hY + 4, { width: cols[i] - 6, align: i >= 3 ? "right" : "left" });
+      xh += cols[i];
+    });
+    doc.y = hY + 16;
+
+    sorted.forEach((p, idx) => {
+      if (doc.y > 750) { doc.addPage(); doc.y = 40; }
+      const rowY = doc.y;
+      const bg = idx % 2 === 0 ? "white" : "#f9fafb";
+      doc.rect(tX, rowY, 515, 14).fill(bg);
+      const vals = [(idx + 1).toString(), p.nome, p.cod, fmtCurrency(p.venda), fmtCurrency(p.custo), p.qtd.toString()];
+      let xr = tX;
+      vals.forEach((v, i) => {
+        doc.fontSize(7.5).fillColor(darkGray).text(v, xr + 3, rowY + 3, { width: cols[i] - 6, align: i >= 3 ? "right" : "left", ellipsis: true });
+        xr += cols[i];
+      });
+      doc.y = rowY + 14;
+    });
+  }
+
+  // Rodapé em todas as páginas
+  const range = doc.bufferedPageRange();
+  for (let i = 0; i < range.count; i++) {
+    doc.switchToPage(range.start + i);
+    doc.fontSize(7).fillColor(gray).text(
+      `LustraMil — Relatório de Vendas Cometa | Página ${i + 1} de ${range.count} | Gerado em ${dataGeracao}`,
+      40, 820, { width: 515, align: "center" }
+    );
+  }
+
+  doc.end();
+  return Buffer.concat(chunks);
+}
+
+export async function generateCometaVendasExcel(
+  items: VendaItemExport[],
+  tipo: "diario" | "acumulado" | "por_produto",
+  filtros: { loja?: string; dataInicio?: string; dataFim?: string }
+): Promise<Buffer> {
+  const ExcelJS = require("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "LustraMil";
+  workbook.created = new Date();
+
+  const headerStyle = {
+    font: { bold: true, color: { argb: "FFFFFFFF" }, size: 10 },
+    fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E3A8A" } },
+    alignment: { horizontal: "center", vertical: "middle" },
+    border: { bottom: { style: "thin", color: { argb: "FF93C5FD" } } },
+  } as any;
+
+  const totalStyle = {
+    font: { bold: true, color: { argb: "FF1E3A8A" }, size: 10 },
+    fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFDBEAFE" } },
+  } as any;
+
+  const fmtCurrency = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // ── Aba Diária ──────────────────────────────────────────────────────────────
+  const sheetDiario = workbook.addWorksheet("Venda Diária");
+  sheetDiario.addRow([`RELATÓRIO DE VENDAS — DIÁRIO | LustraMil | ${new Date().toLocaleDateString("pt-BR")}`]);
+  sheetDiario.getRow(1).font = { bold: true, size: 12, color: { argb: "FF1E3A8A" } };
+  sheetDiario.addRow([]);
+  if (filtros.loja || filtros.dataInicio || filtros.dataFim) {
+    const f = [filtros.loja && `Loja: ${filtros.loja}`, filtros.dataInicio && `De: ${filtros.dataInicio}`, filtros.dataFim && `Até: ${filtros.dataFim}`].filter(Boolean).join(" | ");
+    sheetDiario.addRow([`Filtros: ${f}`]);
+    sheetDiario.getRow(3).font = { italic: true, color: { argb: "FF6B7280" } };
+    sheetDiario.addRow([]);
+  }
+
+  const byDate = new Map<string, { venda: number; custo: number; qtd: number }>();
+  items.forEach(i => {
+    const cur = byDate.get(i.data) || { venda: 0, custo: 0, qtd: 0 };
+    cur.venda += i.venda; cur.custo += i.custo; cur.qtd += i.qtd;
+    byDate.set(i.data, cur);
+  });
+  const sortedDates = Array.from(byDate.entries()).sort((a, b) => {
+    const da = parseVendaDate(a[0]), db = parseVendaDate(b[0]);
+    if (!da || !db) return 0;
+    return da.getTime() - db.getTime();
+  });
+
+  const hRowD = sheetDiario.addRow(["Data", "Venda (R$)", "Custo (R$)", "Margem (%)", "Qtd Unidades", "Venda Acumulada (R$)"]);
+  hRowD.eachCell(cell => Object.assign(cell, headerStyle));
+  hRowD.height = 20;
+
+  let accVenda = 0;
+  sortedDates.forEach(([data, d], idx) => {
+    accVenda += d.venda;
+    const mg = d.venda > 0 ? ((d.venda - d.custo) / d.venda * 100) : 0;
+    const row = sheetDiario.addRow([data, d.venda, d.custo, mg, d.qtd, accVenda]);
+    if (idx % 2 === 1) {
+      row.eachCell(cell => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF9FAFB" } };
+      });
+    }
+    row.getCell(2).numFmt = '"R$"#,##0.00';
+    row.getCell(3).numFmt = '"R$"#,##0.00';
+    row.getCell(4).numFmt = '0.00"%"';
+    row.getCell(6).numFmt = '"R$"#,##0.00';
+  });
+
+  const totD = sheetDiario.addRow(["TOTAL", items.reduce((s, i) => s + i.venda, 0), items.reduce((s, i) => s + i.custo, 0), "", items.reduce((s, i) => s + i.qtd, 0), ""]);
+  totD.eachCell(cell => Object.assign(cell, totalStyle));
+  totD.getCell(2).numFmt = '"R$"#,##0.00';
+  totD.getCell(3).numFmt = '"R$"#,##0.00';
+  [14, 16, 16, 14, 16, 20].forEach((w, i) => { sheetDiario.getColumn(i + 1).width = w; });
+
+  // ── Aba Por Produto ─────────────────────────────────────────────────────────
+  const sheetProd = workbook.addWorksheet("Por Produto");
+  sheetProd.addRow([`RELATÓRIO DE VENDAS — POR PRODUTO | LustraMil | ${new Date().toLocaleDateString("pt-BR")}`]);
+  sheetProd.getRow(1).font = { bold: true, size: 12, color: { argb: "FF1E3A8A" } };
+  sheetProd.addRow([]);
+
+  const byProd = new Map<string, { nome: string; ean: string; cod: string; venda: number; custo: number; qtd: number }>();
+  items.forEach(i => {
+    const key = i.cod_interno || i.ean || i.produto;
+    const cur = byProd.get(key) || { nome: i.produto, ean: i.ean, cod: i.cod_interno, venda: 0, custo: 0, qtd: 0 };
+    cur.venda += i.venda; cur.custo += i.custo; cur.qtd += i.qtd;
+    byProd.set(key, cur);
+  });
+  const sortedProds = Array.from(byProd.values()).sort((a, b) => b.venda - a.venda);
+
+  const hRowP = sheetProd.addRow(["#", "Produto", "Cód. Interno", "EAN", "Venda (R$)", "Custo (R$)", "Margem (%)", "Qtd"]);
+  hRowP.eachCell(cell => Object.assign(cell, headerStyle));
+  hRowP.height = 20;
+
+  sortedProds.forEach((p, idx) => {
+    const mg = p.venda > 0 ? ((p.venda - p.custo) / p.venda * 100) : 0;
+    const row = sheetProd.addRow([idx + 1, p.nome, p.cod, p.ean, p.venda, p.custo, mg, p.qtd]);
+    if (idx % 2 === 1) {
+      row.eachCell(cell => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF9FAFB" } };
+      });
+    }
+    row.getCell(5).numFmt = '"R$"#,##0.00';
+    row.getCell(6).numFmt = '"R$"#,##0.00';
+    row.getCell(7).numFmt = '0.00"%"';
+  });
+
+  const totP = sheetProd.addRow(["", "TOTAL", "", "", items.reduce((s, i) => s + i.venda, 0), items.reduce((s, i) => s + i.custo, 0), "", items.reduce((s, i) => s + i.qtd, 0)]);
+  totP.eachCell(cell => Object.assign(cell, totalStyle));
+  totP.getCell(5).numFmt = '"R$"#,##0.00';
+  totP.getCell(6).numFmt = '"R$"#,##0.00';
+  [6, 40, 14, 16, 16, 16, 12, 10].forEach((w, i) => { sheetProd.getColumn(i + 1).width = w; });
+
+  // ── Aba Detalhado ───────────────────────────────────────────────────────────
+  const sheetDet = workbook.addWorksheet("Detalhado");
+  const hRowDet = sheetDet.addRow(["Data", "Loja", "Produto", "Cód.", "EAN", "Qtd", "Venda (R$)", "Custo (R$)", "Margem (%)"]);
+  hRowDet.eachCell(cell => Object.assign(cell, headerStyle));
+  hRowDet.height = 20;
+
+  items.forEach((i, idx) => {
+    const mg = i.venda > 0 ? ((i.venda - i.custo) / i.venda * 100) : 0;
+    const row = sheetDet.addRow([i.data, i.nome_loja, i.produto, i.cod_interno, i.ean, i.qtd, i.venda, i.custo, mg]);
+    if (idx % 2 === 1) {
+      row.eachCell(cell => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF9FAFB" } };
+      });
+    }
+    row.getCell(7).numFmt = '"R$"#,##0.00';
+    row.getCell(8).numFmt = '"R$"#,##0.00';
+    row.getCell(9).numFmt = '0.00"%"';
+  });
+  [12, 30, 40, 12, 16, 8, 16, 16, 12].forEach((w, i) => { sheetDet.getColumn(i + 1).width = w; });
+
+  const buf = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
