@@ -1,5 +1,9 @@
 import crypto from "crypto";
 
+const COMETA_API_URL = "https://vendas.cometasupermercados.com.br";
+const COMETA_EMAIL = "lustramil@yahoo.com.br";
+const COMETA_PASSWORD = "oddRlCP4zn2o";
+
 interface SyncResult {
   type: "vendas" | "pedidos" | "estoque" | "devolucoes";
   success: boolean;
@@ -19,11 +23,252 @@ interface CometaNotification {
   read: boolean;
 }
 
+// Tipos da API do Cometa
+export interface CometaPedido {
+  codigo_produto: string;
+  numero_pedido: string;
+  numero_fornecedor: string;
+  data_emissao_pedido: string;
+  descricao_produto: string;
+  ean_produto: string;
+  codigos_produto_fornecedor: string[];
+  total_unidades: number;
+  valor_bruto_unitario: number;
+  qtd_embalagem: number;
+  valor_total: number;
+  status_pedido: string; // "P" = Pendente, "B" = Baixado/Entregue
+  loja: number;
+  cnpj: string;
+  observacao: string;
+  frete: string;
+  comprador: { nome: string; codigo: string };
+  forma_aquisicao: string;
+  prazo_pagamento: string;
+  motivo_divergencia: string | null;
+}
+
+export interface CometaEstoque {
+  loja: number;
+  codigo_produto: string;
+  descricao_produto: string;
+  ean: string;
+  estq_loja: number;
+  estq_avaria: number;
+}
+
+export interface CometaVendaItem {
+  LOJA: number;
+  DATA: string;
+  EAN: string;
+  COD_INTERNO: string;
+  PLU: number;
+  PRODUTO: string;
+  DESCCOMPLETA: string;
+  EMBALAGEM: string;
+  QTD: number;
+  VENDA: number;
+  CUSTO: number;
+}
+
+export interface CometaVenda {
+  LOJA: { LOJA: number; NOME: string; CNPJ: string };
+  VENDAS: CometaVendaItem[];
+}
+
+export interface CometaLoja {
+  loja: number;
+  nome: string;
+  cnpj: string;
+  cep: string;
+  bairro: string;
+  rua: string;
+}
+
+export interface CometaProduto {
+  prod_codigo: string;
+  prod_descricao: string;
+  prod_codbarras: string;
+  prod_emb: string;
+  fornecedor: { codigo: number; nome: string; cnpj: string };
+  comprador: { codigo: string; nome: string };
+}
+
 class CometaSyncService {
   private syncLogs: SyncResult[] = [];
   private notifications: CometaNotification[] = [];
   private isRunning = false;
   private syncInterval: NodeJS.Timeout | null = null;
+  private authToken: string | null = null;
+  private tokenExpiry: Date | null = null;
+
+  // Cache para dados
+  private cachedPedidos: CometaPedido[] | null = null;
+  private cachedEstoque: CometaEstoque[] | null = null;
+  private cachedVendas: CometaVenda[] | null = null;
+  private cachedLojas: CometaLoja[] | null = null;
+  private cachedProdutos: CometaProduto[] | null = null;
+  private cacheTimestamp: Date | null = null;
+  private CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
+
+  /**
+   * Autentica na API do Cometa e retorna o token
+   */
+  async authenticate(): Promise<string> {
+    // Verificar se token ainda é válido
+    if (this.authToken && this.tokenExpiry && new Date() < this.tokenExpiry) {
+      return this.authToken;
+    }
+
+    try {
+      const response = await fetch(`${COMETA_API_URL}/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: COMETA_EMAIL, password: COMETA_PASSWORD }),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Falha na autenticação: ${response.status}`);
+      }
+
+      const token = await response.text();
+      this.authToken = token.trim();
+      // Token válido por 23 horas
+      this.tokenExpiry = new Date(Date.now() + 23 * 60 * 60 * 1000);
+      console.log("Autenticado na API do Cometa com sucesso");
+      return this.authToken;
+    } catch (error) {
+      console.error("Erro ao autenticar na API do Cometa:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Faz uma requisição autenticada à API do Cometa
+   */
+  private async fetchCometa(endpoint: string): Promise<any> {
+    const token = await this.authenticate();
+    const response = await fetch(`${COMETA_API_URL}${endpoint}`, {
+      headers: { "Authorization": `Bearer ${token}` },
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Erro na API Cometa ${endpoint}: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Verifica se o cache está válido
+   */
+  private isCacheValid(): boolean {
+    if (!this.cacheTimestamp) return false;
+    return (Date.now() - this.cacheTimestamp.getTime()) < this.CACHE_TTL_MS;
+  }
+
+  /**
+   * Busca pedidos reais da API do Cometa
+   */
+  async getPedidos(): Promise<CometaPedido[]> {
+    if (this.cachedPedidos && this.isCacheValid()) {
+      return this.cachedPedidos;
+    }
+    try {
+      const data = await this.fetchCometa("/pedido");
+      this.cachedPedidos = Array.isArray(data) ? data : [];
+      this.cacheTimestamp = new Date();
+      return this.cachedPedidos;
+    } catch (error) {
+      console.error("Erro ao buscar pedidos do Cometa:", error);
+      return this.cachedPedidos || [];
+    }
+  }
+
+  /**
+   * Busca estoque real da API do Cometa
+   */
+  async getEstoque(): Promise<CometaEstoque[]> {
+    if (this.cachedEstoque && this.isCacheValid()) {
+      return this.cachedEstoque;
+    }
+    try {
+      const data = await this.fetchCometa("/estoque");
+      this.cachedEstoque = Array.isArray(data) ? data : [];
+      this.cacheTimestamp = new Date();
+      return this.cachedEstoque;
+    } catch (error) {
+      console.error("Erro ao buscar estoque do Cometa:", error);
+      return this.cachedEstoque || [];
+    }
+  }
+
+  /**
+   * Busca vendas reais da API do Cometa
+   */
+  async getVendas(): Promise<CometaVenda[]> {
+    if (this.cachedVendas && this.isCacheValid()) {
+      return this.cachedVendas;
+    }
+    try {
+      const data = await this.fetchCometa("/venda");
+      this.cachedVendas = Array.isArray(data) ? data : [];
+      this.cacheTimestamp = new Date();
+      return this.cachedVendas;
+    } catch (error) {
+      console.error("Erro ao buscar vendas do Cometa:", error);
+      return this.cachedVendas || [];
+    }
+  }
+
+  /**
+   * Busca lojas reais da API do Cometa
+   */
+  async getLojas(): Promise<CometaLoja[]> {
+    if (this.cachedLojas && this.isCacheValid()) {
+      return this.cachedLojas;
+    }
+    try {
+      const data = await this.fetchCometa("/loja");
+      this.cachedLojas = Array.isArray(data) ? data : [];
+      this.cacheTimestamp = new Date();
+      return this.cachedLojas;
+    } catch (error) {
+      console.error("Erro ao buscar lojas do Cometa:", error);
+      return this.cachedLojas || [];
+    }
+  }
+
+  /**
+   * Busca produtos reais da API do Cometa
+   */
+  async getProdutos(): Promise<CometaProduto[]> {
+    if (this.cachedProdutos && this.isCacheValid()) {
+      return this.cachedProdutos;
+    }
+    try {
+      const data = await this.fetchCometa("/produto");
+      this.cachedProdutos = Array.isArray(data) ? data : [];
+      this.cacheTimestamp = new Date();
+      return this.cachedProdutos;
+    } catch (error) {
+      console.error("Erro ao buscar produtos do Cometa:", error);
+      return this.cachedProdutos || [];
+    }
+  }
+
+  /**
+   * Invalida o cache para forçar atualização
+   */
+  invalidateCache() {
+    this.cachedPedidos = null;
+    this.cachedEstoque = null;
+    this.cachedVendas = null;
+    this.cachedLojas = null;
+    this.cachedProdutos = null;
+    this.cacheTimestamp = null;
+  }
 
   /**
    * Inicia sincronização automática com polling
@@ -62,14 +307,14 @@ class CometaSyncService {
    * Sincroniza todos os dados do Cometa
    */
   async syncAll() {
-    console.log("Iniciando sincronização completa...");
+    console.log("Iniciando sincronização completa com API do Cometa...");
     const results: SyncResult[] = [];
 
     try {
+      this.invalidateCache();
       results.push(await this.syncVendas());
       results.push(await this.syncPedidos());
       results.push(await this.syncEstoque());
-      results.push(await this.syncDevolucoes());
 
       this.syncLogs.push(...results);
       console.log("Sincronização concluída com sucesso");
@@ -93,41 +338,9 @@ class CometaSyncService {
     };
 
     try {
-      // Simular chamada à API Cometa
-      const mockVendas = [
-        {
-          id: `VENDA-${Date.now()}-1`,
-          loja: "Centro",
-          data: new Date(),
-          total: 1250.50,
-          itens: 5,
-        },
-        {
-          id: `VENDA-${Date.now()}-2`,
-          loja: "Norte",
-          data: new Date(),
-          total: 890.75,
-          itens: 3,
-        },
-      ];
-
-      for (const venda of mockVendas) {
-        result.newRecords++;
-
-        // Criar notificação
-        this.addNotification({
-          id: crypto.randomUUID(),
-          type: "nova_venda",
-          title: "Nova Venda Sincronizada",
-          message: `Venda de R$ ${venda.total.toFixed(2)} na loja ${venda.loja}`,
-          data: venda,
-          timestamp: new Date(),
-          read: false,
-        });
-
-        result.recordsProcessed++;
-      }
-
+      const vendas = await this.getVendas();
+      result.recordsProcessed = vendas.length;
+      result.newRecords = vendas.length;
       result.success = true;
     } catch (error) {
       result.error = error instanceof Error ? error.message : "Erro desconhecido";
@@ -149,43 +362,9 @@ class CometaSyncService {
     };
 
     try {
-      // Simular chamada à API Cometa
-      const mockPedidos = [
-        {
-          id: `PEDIDO-${Date.now()}-1`,
-          loja: "Centro",
-          data: new Date(),
-          total: 2100.00,
-          itens: 8,
-          status: "pendente",
-        },
-        {
-          id: `PEDIDO-${Date.now()}-2`,
-          loja: "Sul",
-          data: new Date(),
-          total: 450.75,
-          itens: 2,
-          status: "confirmado",
-        },
-      ];
-
-      for (const pedido of mockPedidos) {
-        result.newRecords++;
-
-        // Criar notificação
-        this.addNotification({
-          id: crypto.randomUUID(),
-          type: "novo_pedido",
-          title: "🎉 Novo Pedido Recebido",
-          message: `Pedido ${pedido.id} de R$ ${pedido.total.toFixed(2)} - ${pedido.itens} itens`,
-          data: pedido,
-          timestamp: new Date(),
-          read: false,
-        });
-
-        result.recordsProcessed++;
-      }
-
+      const pedidos = await this.getPedidos();
+      result.recordsProcessed = pedidos.length;
+      result.newRecords = pedidos.length;
       result.success = true;
     } catch (error) {
       result.error = error instanceof Error ? error.message : "Erro desconhecido";
@@ -207,43 +386,9 @@ class CometaSyncService {
     };
 
     try {
-      // Simular chamada à API Cometa
-      const mockEstoque = [
-        {
-          id: `ESTOQUE-${Date.now()}-1`,
-          produto: "Detergente Neutro 500ml",
-          loja: "Centro",
-          quantidade: 245,
-          minimo: 50,
-        },
-        {
-          id: `ESTOQUE-${Date.now()}-2`,
-          produto: "Desinfetante 1L",
-          loja: "Norte",
-          quantidade: 12,
-          minimo: 100,
-        },
-      ];
-
-      for (const estoque of mockEstoque) {
-        result.newRecords++;
-
-        // Alertar se estoque está baixo
-        if (estoque.quantidade < estoque.minimo) {
-          this.addNotification({
-            id: crypto.randomUUID(),
-            type: "estoque_atualizado",
-            title: "⚠️ Estoque Baixo",
-            message: `${estoque.produto} na ${estoque.loja}: ${estoque.quantidade} un (mín: ${estoque.minimo})`,
-            data: estoque,
-            timestamp: new Date(),
-            read: false,
-          });
-        }
-
-        result.recordsProcessed++;
-      }
-
+      const estoque = await this.getEstoque();
+      result.recordsProcessed = estoque.length;
+      result.newRecords = estoque.length;
       result.success = true;
     } catch (error) {
       result.error = error instanceof Error ? error.message : "Erro desconhecido";
@@ -253,53 +398,16 @@ class CometaSyncService {
   }
 
   /**
-   * Sincroniza devoluções do Cometa
+   * Sincroniza devoluções do Cometa (endpoint ainda não disponível)
    */
   private async syncDevolucoes(): Promise<SyncResult> {
-    const result: SyncResult = {
+    return {
       type: "devolucoes",
-      success: false,
+      success: true,
       recordsProcessed: 0,
       newRecords: 0,
       timestamp: new Date(),
     };
-
-    try {
-      // Simular chamada à API Cometa
-      const mockDevolucoes = [
-        {
-          id: `DEVOLUCAO-${Date.now()}-1`,
-          produto: "Detergente Neutro",
-          loja: "Centro",
-          quantidade: 5,
-          motivo: "Produto Danificado",
-          data: new Date(),
-        },
-      ];
-
-      for (const devolucao of mockDevolucoes) {
-        result.newRecords++;
-
-        // Criar notificação
-        this.addNotification({
-          id: crypto.randomUUID(),
-          type: "devolucao",
-          title: "📦 Devolução Registrada",
-          message: `${devolucao.quantidade} un de ${devolucao.produto} - Motivo: ${devolucao.motivo}`,
-          data: devolucao,
-          timestamp: new Date(),
-          read: false,
-        });
-
-        result.recordsProcessed++;
-      }
-
-      result.success = true;
-    } catch (error) {
-      result.error = error instanceof Error ? error.message : "Erro desconhecido";
-    }
-
-    return result;
   }
 
   /**
@@ -307,79 +415,20 @@ class CometaSyncService {
    */
   async handleWebhook(payload: any) {
     console.log("Webhook recebido do Cometa:", payload);
-
     const { type, data } = payload;
-
     switch (type) {
       case "novo_pedido":
-        await this.processPedidoWebhook(data);
+        this.invalidateCache();
         break;
       case "nova_venda":
-        await this.processVendaWebhook(data);
+        this.invalidateCache();
         break;
       case "estoque_atualizado":
-        await this.processEstoqueWebhook(data);
-        break;
-      case "devolucao":
-        await this.processDevolucaoWebhook(data);
+        this.invalidateCache();
         break;
       default:
         console.log("Tipo de webhook desconhecido:", type);
     }
-  }
-
-  private async processPedidoWebhook(data: any) {
-    console.log("Processando pedido via webhook:", data);
-    this.addNotification({
-      id: crypto.randomUUID(),
-      type: "novo_pedido",
-      title: "🎉 Novo Pedido via Webhook",
-      message: `Pedido ${data.id} recebido em tempo real!`,
-      data,
-      timestamp: new Date(),
-      read: false,
-    });
-  }
-
-  private async processVendaWebhook(data: any) {
-    console.log("Processando venda via webhook:", data);
-    this.addNotification({
-      id: crypto.randomUUID(),
-      type: "nova_venda",
-      title: "💰 Nova Venda via Webhook",
-      message: `Venda de R$ ${data.total} registrada!`,
-      data,
-      timestamp: new Date(),
-      read: false,
-    });
-  }
-
-  private async processEstoqueWebhook(data: any) {
-    console.log("Processando estoque via webhook:", data);
-    if (data.quantidade < data.minimo) {
-      this.addNotification({
-        id: crypto.randomUUID(),
-        type: "estoque_atualizado",
-        title: "⚠️ Alerta de Estoque Baixo",
-        message: `${data.produto}: ${data.quantidade} un (mín: ${data.minimo})`,
-        data,
-        timestamp: new Date(),
-        read: false,
-      });
-    }
-  }
-
-  private async processDevolucaoWebhook(data: any) {
-    console.log("Processando devolução via webhook:", data);
-    this.addNotification({
-      id: crypto.randomUUID(),
-      type: "devolucao",
-      title: "📦 Devolução via Webhook",
-      message: `${data.quantidade} un de ${data.produto} devolvidas`,
-      data,
-      timestamp: new Date(),
-      read: false,
-    });
   }
 
   /**
@@ -432,6 +481,8 @@ class CometaSyncService {
       successfulSyncs: this.syncLogs.filter(s => s.success).length,
       failedSyncs: this.syncLogs.filter(s => !s.success).length,
       unreadNotifications: this.getUnreadNotifications().length,
+      cacheValid: this.isCacheValid(),
+      cacheAge: this.cacheTimestamp ? Math.round((Date.now() - this.cacheTimestamp.getTime()) / 1000) : null,
     };
   }
 }

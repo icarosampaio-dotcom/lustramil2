@@ -1,193 +1,208 @@
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Loader2, RefreshCw, CheckCircle, AlertCircle, TrendingUp } from "lucide-react";
+import { RefreshCw, Loader2, ShoppingCart, Package, TrendingUp, Store } from "lucide-react";
 import { toast } from "sonner";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from "recharts";
-
-const mockData = [
-  { month: "Jan", vendas: 4000, estoque: 2400, pedidos: 2400 },
-  { month: "Fev", vendas: 3000, estoque: 1398, pedidos: 2210 },
-  { month: "Mar", vendas: 2000, estoque: 9800, pedidos: 2290 },
-  { month: "Abr", vendas: 2780, estoque: 3908, pedidos: 2000 },
-  { month: "Mai", vendas: 1890, estoque: 4800, pedidos: 2181 },
-];
-
-const mockLogs = [
-  { id: 1, timestamp: "2026-04-02 10:30", tipo: "Vendas", status: "✅ Sucesso", registros: 245 },
-  { id: 2, timestamp: "2026-04-02 09:30", tipo: "Estoque", status: "✅ Sucesso", registros: 1203 },
-  { id: 3, timestamp: "2026-04-02 08:30", tipo: "Pedidos", status: "✅ Sucesso", registros: 45 },
-  { id: 4, timestamp: "2026-04-02 07:30", tipo: "Devoluções", status: "✅ Sucesso", registros: 12 },
-];
+import { trpc } from "@/lib/trpc";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 export default function CometaDashboard() {
-  const [isLoading, setIsLoading] = useState(false);
-  const [lastSync, setLastSync] = useState("2026-04-02 10:30:00");
+  const { data: pedidos = [], isLoading: loadingPedidos } = trpc.cometa.pedidos.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60 * 1000,
+  });
 
-  const handleSync = async () => {
-    setIsLoading(true);
-    try {
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      setLastSync(new Date().toLocaleString("pt-BR"));
-      toast.success("✅ Sincronização concluída com sucesso!");
-    } catch (error) {
-      toast.error("❌ Erro na sincronização");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const { data: estoque = [], isLoading: loadingEstoque } = trpc.cometa.estoque.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: vendas = [], isLoading: loadingVendas } = trpc.cometa.vendas.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const forceSyncMutation = trpc.cometa.forceSync.useMutation({
+    onSuccess: () => {
+      toast.success("Dados atualizados com sucesso!");
+    },
+  });
+
+  const isLoading = loadingPedidos || loadingEstoque || loadingVendas;
+
+  const totalPedidos = pedidos.length;
+  const pedidosPendentes = pedidos.filter((p: any) => p.status === "pendente").length;
+  const valorTotalPedidos = pedidos.reduce((sum: number, p: any) => sum + p.valor_total, 0);
+
+  const totalVendas = vendas.reduce((sum: number, v: any) => sum + v.total_venda, 0);
+  const totalLojas = vendas.length;
+
+  const estoqueZerado = estoque.filter((e: any) => e.status === "zerado").length;
+  const estoqueBaixo = estoque.filter((e: any) => e.status === "baixo").length;
+
+  const topVendasLojas = vendas
+    .map((v: any) => ({
+      loja: v.nome_loja.replace(/^\d+ - /, "").substring(0, 15),
+      vendas: parseFloat(v.total_venda.toFixed(2)),
+    }))
+    .sort((a: any, b: any) => b.vendas - a.vendas)
+    .slice(0, 10);
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold">Dashboard Cometa</h1>
-          <p className="text-muted-foreground">Monitore a sincronização de dados em tempo real</p>
+          <p className="text-muted-foreground">Visao geral da integracao com o Cometa Supermercados</p>
         </div>
-        <Button onClick={handleSync} disabled={isLoading} size="lg">
-          {isLoading ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              Sincronizando...
-            </>
+        <Button variant="outline" onClick={() => forceSyncMutation.mutate()} disabled={forceSyncMutation.isPending}>
+          {forceSyncMutation.isPending ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
           ) : (
-            <>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Sincronizar Agora
-            </>
+            <RefreshCw className="h-4 w-4 mr-2" />
           )}
+          Atualizar Dados
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Vendas Sincronizadas</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">1,245</div>
-            <p className="text-xs text-muted-foreground">+12% desde ontem</p>
-          </CardContent>
-        </Card>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
+          <span className="ml-4 text-lg text-muted-foreground">Carregando dados do Cometa...</span>
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <ShoppingCart className="h-4 w-4 text-blue-600" /> Pedidos Ativos
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{totalPedidos}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {pedidosPendentes} pendentes - R$ {valorTotalPedidos.toFixed(2).replace(".", ",")} total
+                </p>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Estoque Atualizado</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">3,456</div>
-            <p className="text-xs text-muted-foreground">Produtos monitorados</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Pedidos Recebidos</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">89</div>
-            <p className="text-xs text-muted-foreground">Aguardando processamento</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Taxa de Sucesso</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">99.8%</div>
-            <p className="text-xs text-muted-foreground">Última sincronização</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Evolução de Sincronizações</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={mockData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="vendas" fill="#3b82f6" />
-                <Bar dataKey="estoque" fill="#10b981" />
-                <Bar dataKey="pedidos" fill="#f59e0b" />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Status da Sincronização</CardTitle>
-            <CardDescription>Última atualização: {lastSync}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <span className="font-medium">Vendas</span>
-              </div>
-              <Badge className="bg-green-600">Ativo</Badge>
-            </div>
-
-            <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <span className="font-medium">Estoque</span>
-              </div>
-              <Badge className="bg-green-600">Ativo</Badge>
-            </div>
-
-            <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <span className="font-medium">Pedidos</span>
-              </div>
-              <Badge className="bg-green-600">Ativo</Badge>
-            </div>
-
-            <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <span className="font-medium">Devoluções</span>
-              </div>
-              <Badge className="bg-green-600">Ativo</Badge>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Histórico de Sincronizações</CardTitle>
-          <CardDescription>Últimas 10 sincronizações realizadas</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {mockLogs.map((log) => (
-              <div key={log.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50">
-                <div className="flex-1">
-                  <p className="font-medium">{log.tipo}</p>
-                  <p className="text-xs text-muted-foreground">{log.timestamp}</p>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-green-600" /> Total de Vendas
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-green-600">
+                  R$ {totalVendas.toFixed(2).replace(".", ",")}
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-sm font-semibold">{log.registros} registros</span>
-                  <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                    {log.status}
-                  </Badge>
-                </div>
-              </div>
-            ))}
+                <p className="text-xs text-muted-foreground mt-1">{totalLojas} lojas com vendas</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Package className="h-4 w-4 text-orange-600" /> Alertas de Estoque
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-orange-600">{estoqueZerado + estoqueBaixo}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {estoqueZerado} zerados - {estoqueBaixo} baixos
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Store className="h-4 w-4 text-purple-600" /> Itens em Estoque
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{estoque.length}</div>
+                <p className="text-xs text-muted-foreground mt-1">Produtos x Lojas monitorados</p>
+              </CardContent>
+            </Card>
           </div>
-        </CardContent>
-      </Card>
+
+          {topVendasLojas.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Top 10 Lojas por Vendas (R$)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={topVendasLojas} margin={{ top: 5, right: 30, left: 20, bottom: 60 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="loja" angle={-45} textAnchor="end" interval={0} tick={{ fontSize: 11 }} />
+                    <YAxis tickFormatter={(v) => `R$${v}`} />
+                    <Tooltip formatter={(value: any) => [`R$ ${Number(value).toFixed(2)}`, "Vendas"]} />
+                    <Bar dataKey="vendas" fill="#22c55e" name="Vendas (R$)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Pedidos Recentes</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {pedidos.slice(0, 5).map((p: any) => (
+                    <div key={p.id} className="flex justify-between items-center p-2 border rounded">
+                      <div>
+                        <p className="font-medium text-sm">Pedido #{p.id}</p>
+                        <p className="text-xs text-muted-foreground">{p.loja} - {p.data}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-sm">{p.total}</p>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${p.status === "pendente" ? "bg-yellow-100 text-yellow-800" : "bg-green-100 text-green-800"}`}>
+                          {p.status === "pendente" ? "Pendente" : "Entregue"}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Alertas de Estoque</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {estoque
+                    .filter((e: any) => e.status !== "ok")
+                    .slice(0, 5)
+                    .map((e: any) => (
+                      <div key={e.id} className="flex justify-between items-center p-2 border rounded">
+                        <div>
+                          <p className="font-medium text-sm">{e.nome}</p>
+                          <p className="text-xs text-muted-foreground">{e.loja}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-sm">{e.quantidade} un</p>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${e.status === "zerado" ? "bg-red-100 text-red-800" : "bg-yellow-100 text-yellow-800"}`}>
+                            {e.status === "zerado" ? "Zerado" : "Baixo"}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  {estoque.filter((e: any) => e.status !== "ok").length === 0 && (
+                    <p className="text-center text-muted-foreground py-4">Nenhum alerta de estoque</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
     </div>
   );
 }

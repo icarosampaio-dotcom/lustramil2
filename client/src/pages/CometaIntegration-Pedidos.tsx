@@ -5,36 +5,71 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ShoppingCart, Download, Eye, CheckCircle, Clock, XCircle, Package, MapPin, Calendar, DollarSign } from "lucide-react";
+import { ShoppingCart, Download, Eye, Package, MapPin, Calendar, DollarSign, RefreshCw, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-
-const mockOrdersData = [
-  { id: "COM-001", data: "2026-04-02", loja: "Loja Centro", total: "R$ 1.250,00", status: "pendente", itens: 5, endereco: "Rua das Flores, 123 - Centro", telefone: "(11) 3456-7890", responsavel: "João Silva", produtos: [{ nome: "Sabonete Líquido 5L", qtd: 10, valor: "R$ 250,00" }, { nome: "Desinfetante 2L", qtd: 20, valor: "R$ 400,00" }, { nome: "Detergente 500ml", qtd: 30, valor: "R$ 300,00" }, { nome: "Álcool Gel 1L", qtd: 15, valor: "R$ 225,00" }, { nome: "Água Sanitária 1L", qtd: 25, valor: "R$ 75,00" }] },
-  { id: "COM-002", data: "2026-04-02", loja: "Loja Norte", total: "R$ 890,50", status: "confirmado", itens: 3, endereco: "Av. Norte, 456 - Bairro Norte", telefone: "(11) 3456-7891", responsavel: "Maria Santos", produtos: [{ nome: "Sabonete Líquido 5L", qtd: 8, valor: "R$ 200,00" }, { nome: "Desinfetante 2L", qtd: 15, valor: "R$ 300,00" }, { nome: "Detergente 500ml", qtd: 26, valor: "R$ 390,50" }] },
-  { id: "COM-003", data: "2026-04-01", loja: "Loja Sul", total: "R$ 2.100,00", status: "entregue", itens: 8, endereco: "Rua Sul, 789 - Bairro Sul", telefone: "(11) 3456-7892", responsavel: "Carlos Oliveira", produtos: [{ nome: "Sabonete Líquido 5L", qtd: 20, valor: "R$ 500,00" }, { nome: "Desinfetante 2L", qtd: 25, valor: "R$ 500,00" }, { nome: "Detergente 500ml", qtd: 40, valor: "R$ 400,00" }, { nome: "Álcool Gel 1L", qtd: 20, valor: "R$ 300,00" }, { nome: "Água Sanitária 1L", qtd: 30, valor: "R$ 90,00" }, { nome: "Limpador Multiuso 1L", qtd: 15, valor: "R$ 150,00" }, { nome: "Amaciante 2L", qtd: 10, valor: "R$ 80,00" }, { nome: "Sabão em Pó 1kg", qtd: 10, valor: "R$ 80,00" }] },
-  { id: "COM-004", data: "2026-04-01", loja: "Loja Leste", total: "R$ 450,75", status: "cancelado", itens: 2, endereco: "Av. Leste, 321 - Bairro Leste", telefone: "(11) 3456-7893", responsavel: "Ana Costa", produtos: [{ nome: "Sabonete Líquido 5L", qtd: 5, valor: "R$ 125,00" }, { nome: "Desinfetante 2L", qtd: 16, valor: "R$ 325,75" }] },
-  { id: "COM-005", data: "2026-03-31", loja: "Loja Centro", total: "R$ 3.200,00", status: "entregue", itens: 10, endereco: "Rua das Flores, 123 - Centro", telefone: "(11) 3456-7890", responsavel: "João Silva", produtos: [{ nome: "Sabonete Líquido 5L", qtd: 30, valor: "R$ 750,00" }, { nome: "Desinfetante 2L", qtd: 40, valor: "R$ 800,00" }, { nome: "Detergente 500ml", qtd: 50, valor: "R$ 500,00" }, { nome: "Álcool Gel 1L", qtd: 30, valor: "R$ 450,00" }, { nome: "Água Sanitária 1L", qtd: 50, valor: "R$ 150,00" }, { nome: "Limpador Multiuso 1L", qtd: 25, valor: "R$ 250,00" }, { nome: "Amaciante 2L", qtd: 15, valor: "R$ 120,00" }, { nome: "Sabão em Pó 1kg", qtd: 15, valor: "R$ 120,00" }, { nome: "Esponja de Aço", qtd: 100, valor: "R$ 30,00" }, { nome: "Pano de Chão", qtd: 20, valor: "R$ 30,00" }] },
-];
+import { trpc } from "@/lib/trpc";
 
 const statusConfig = {
   pendente: { label: "Pendente", color: "bg-yellow-100 text-yellow-800" },
+  entregue: { label: "Entregue/Baixado", color: "bg-green-100 text-green-800" },
   confirmado: { label: "Confirmado", color: "bg-blue-100 text-blue-800" },
-  entregue: { label: "Entregue", color: "bg-green-100 text-green-800" },
   cancelado: { label: "Cancelado", color: "bg-red-100 text-red-800" },
 };
 
-type Order = typeof mockOrdersData[0];
+type Order = {
+  id: string;
+  numero_pedido: string;
+  data: string;
+  loja: string;
+  loja_numero: number;
+  cnpj: string;
+  status: string;
+  status_raw: string;
+  frete: string;
+  comprador: { nome: string; codigo: string };
+  prazo_pagamento: string;
+  observacao: string;
+  produtos: Array<{
+    nome: string;
+    codigo: string;
+    ean: string;
+    qtd: number;
+    qtd_embalagem: number;
+    valor_unitario: number;
+    valor: string;
+    valor_numerico: number;
+  }>;
+  valor_total: number;
+  total_unidades: number;
+  total: string;
+  itens: number;
+};
 
 export default function CometaPedidos() {
   const [filter, setFilter] = useState("todos");
   const [search, setSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [orders, setOrders] = useState(mockOrdersData);
 
-  const filteredOrders = orders.filter(order => {
+  const { data: orders = [], isLoading, refetch, isFetching } = trpc.cometa.pedidos.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const forceSyncMutation = trpc.cometa.forceSync.useMutation({
+    onSuccess: () => {
+      refetch();
+      toast.success("Dados atualizados com sucesso!");
+    },
+    onError: () => {
+      toast.error("Erro ao atualizar dados.");
+    },
+  });
+
+  const filteredOrders = orders.filter((order: Order) => {
     const matchFilter = filter === "todos" || order.status === filter;
     const matchSearch = order.id.toLowerCase().includes(search.toLowerCase()) ||
-      order.loja.toLowerCase().includes(search.toLowerCase());
+      order.loja.toLowerCase().includes(search.toLowerCase()) ||
+      order.produtos.some(p => p.nome.toLowerCase().includes(search.toLowerCase()));
     return matchFilter && matchSearch;
   });
 
@@ -42,51 +77,71 @@ export default function CometaPedidos() {
     setSelectedOrder(order);
   };
 
-  const handleConfirm = (id: string) => {
-    setOrders(prev => prev.map(o => o.id === id ? { ...o, status: "confirmado" } : o));
-    if (selectedOrder?.id === id) setSelectedOrder(prev => prev ? { ...prev, status: "confirmado" } : null);
-    toast.success(`Pedido ${id} confirmado com sucesso!`);
-  };
-
-  const handleCancel = (id: string) => {
-    setOrders(prev => prev.map(o => o.id === id ? { ...o, status: "cancelado" } : o));
-    if (selectedOrder?.id === id) setSelectedOrder(prev => prev ? { ...prev, status: "cancelado" } : null);
-    toast.error(`Pedido ${id} cancelado.`);
-  };
-
   const handleExport = () => {
     toast.success("Pedidos exportados para Excel!");
   };
+
+  const handleForceSync = () => {
+    forceSyncMutation.mutate();
+  };
+
+  const totalPendentes = orders.filter((o: Order) => o.status === "pendente").length;
+  const totalEntregues = orders.filter((o: Order) => o.status === "entregue").length;
+  const valorTotal = orders.reduce((sum: number, o: Order) => sum + o.valor_total, 0);
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold">Pedidos Cometa</h1>
-          <p className="text-muted-foreground">Gerencie pedidos recebidos do Cometa Supermercados</p>
+          <p className="text-muted-foreground">Pedidos reais recebidos do Cometa Supermercados</p>
         </div>
-        <Button onClick={handleExport}>
-          <Download className="h-4 w-4 mr-2" />
-          Exportar Excel
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleForceSync} disabled={forceSyncMutation.isPending || isFetching}>
+            {(forceSyncMutation.isPending || isFetching) ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Atualizar
+          </Button>
+          <Button onClick={handleExport}>
+            <Download className="h-4 w-4 mr-2" />
+            Exportar Excel
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total de Pedidos</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold">{orders.length}</div><p className="text-xs text-muted-foreground">Todos os períodos</p></CardContent>
+          <CardContent>
+            <div className="text-2xl font-bold">{isLoading ? "..." : orders.length}</div>
+            <p className="text-xs text-muted-foreground">Todos os períodos</p>
+          </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Pendentes</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-yellow-600">{orders.filter(o => o.status === "pendente").length}</div><p className="text-xs text-muted-foreground">Aguardando ação</p></CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Pendentes (P)</CardTitle></CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-yellow-600">{isLoading ? "..." : totalPendentes}</div>
+            <p className="text-xs text-muted-foreground">Aguardando entrega</p>
+          </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Confirmados</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-blue-600">{orders.filter(o => o.status === "confirmado").length}</div><p className="text-xs text-muted-foreground">Em processamento</p></CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Entregues (B)</CardTitle></CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{isLoading ? "..." : totalEntregues}</div>
+            <p className="text-xs text-muted-foreground">Baixados/Entregues</p>
+          </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Valor Total</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold">R$ 7.890,25</div><p className="text-xs text-muted-foreground">Todos os pedidos</p></CardContent>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {isLoading ? "..." : `R$ ${valorTotal.toFixed(2).replace(".", ",")}`}
+            </div>
+            <p className="text-xs text-muted-foreground">Todos os pedidos</p>
+          </CardContent>
         </Card>
       </div>
 
@@ -94,16 +149,18 @@ export default function CometaPedidos() {
         <CardHeader><CardTitle>Filtros</CardTitle></CardHeader>
         <CardContent className="flex gap-4">
           <div className="flex-1">
-            <Input placeholder="Buscar por ID ou loja..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Input
+              placeholder="Buscar por número, loja ou produto..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
           <Select value={filter} onValueChange={setFilter}>
             <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="todos">Todos</SelectItem>
-              <SelectItem value="pendente">Pendentes</SelectItem>
-              <SelectItem value="confirmado">Confirmados</SelectItem>
-              <SelectItem value="entregue">Entregues</SelectItem>
-              <SelectItem value="cancelado">Cancelados</SelectItem>
+              <SelectItem value="pendente">Pendentes (P)</SelectItem>
+              <SelectItem value="entregue">Entregues (B)</SelectItem>
             </SelectContent>
           </Select>
         </CardContent>
@@ -112,49 +169,59 @@ export default function CometaPedidos() {
       <Card>
         <CardHeader>
           <CardTitle>Lista de Pedidos</CardTitle>
-          <CardDescription>{filteredOrders.length} pedido(s) — clique em qualquer pedido para ver os detalhes</CardDescription>
+          <CardDescription>
+            {isLoading ? "Carregando dados da API do Cometa..." : `${filteredOrders.length} pedido(s) — clique para ver os detalhes`}
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            {filteredOrders.map((order) => {
-              const statusInfo = statusConfig[order.status as keyof typeof statusConfig];
-              return (
-                <div
-                  key={order.id}
-                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
-                  onClick={() => handleView(order)}
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3">
-                      <ShoppingCart className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="font-semibold">{order.id}</p>
-                        <p className="text-sm text-muted-foreground">{order.loja} • {order.data}</p>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <span className="ml-3 text-muted-foreground">Carregando pedidos do Cometa...</span>
+            </div>
+          ) : filteredOrders.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <ShoppingCart className="h-12 w-12 mx-auto mb-4 opacity-30" />
+              <p>Nenhum pedido encontrado</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filteredOrders.map((order: Order) => {
+                const statusInfo = statusConfig[order.status as keyof typeof statusConfig] || statusConfig.pendente;
+                return (
+                  <div
+                    key={order.id}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
+                    onClick={() => handleView(order)}
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3">
+                        <ShoppingCart className="h-5 w-5 text-muted-foreground" />
+                        <div>
+                          <p className="font-semibold">Pedido #{order.id}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {order.loja} • {order.data} • {order.itens} produto(s)
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="font-semibold">{order.total}</p>
+                        <p className="text-xs text-muted-foreground">{order.total_unidades} unidades</p>
+                      </div>
+                      <Badge className={statusInfo.color}>{statusInfo.label}</Badge>
+                      <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                        <Button variant="outline" size="sm" onClick={() => handleView(order)} title="Ver detalhes">
+                          <Eye className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className="font-semibold">{order.total}</p>
-                      <p className="text-xs text-muted-foreground">{order.itens} itens</p>
-                    </div>
-                    <Badge className={statusInfo.color}>{statusInfo.label}</Badge>
-                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                      <Button variant="outline" size="sm" onClick={() => handleView(order)} title="Ver detalhes">
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      {order.status === "pendente" && (
-                        <>
-                          <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleConfirm(order.id)}>Confirmar</Button>
-                          <Button size="sm" variant="destructive" onClick={() => handleCancel(order.id)}>Cancelar</Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -166,9 +233,9 @@ export default function CometaPedidos() {
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-3">
                   <ShoppingCart className="h-5 w-5" />
-                  Pedido {selectedOrder.id}
-                  <Badge className={statusConfig[selectedOrder.status as keyof typeof statusConfig].color}>
-                    {statusConfig[selectedOrder.status as keyof typeof statusConfig].label}
+                  Pedido #{selectedOrder.id}
+                  <Badge className={(statusConfig[selectedOrder.status as keyof typeof statusConfig] || statusConfig.pendente).color}>
+                    {(statusConfig[selectedOrder.status as keyof typeof statusConfig] || statusConfig.pendente).label}
                   </Badge>
                 </DialogTitle>
                 <DialogDescription>Detalhes completos do pedido</DialogDescription>
@@ -183,9 +250,10 @@ export default function CometaPedidos() {
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm">
                     <div className="flex justify-between"><span className="text-muted-foreground">Loja:</span><span className="font-medium">{selectedOrder.loja}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Endereço:</span><span className="font-medium">{selectedOrder.endereco}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Telefone:</span><span className="font-medium">{selectedOrder.telefone}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Responsável:</span><span className="font-medium">{selectedOrder.responsavel}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">CNPJ:</span><span className="font-medium">{selectedOrder.cnpj}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Comprador:</span><span className="font-medium">{selectedOrder.comprador?.nome} (Cód: {selectedOrder.comprador?.codigo})</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Frete:</span><span className="font-medium">{selectedOrder.frete === "C" ? "CIF (por conta do fornecedor)" : selectedOrder.frete}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Prazo Pagamento:</span><span className="font-medium">{selectedOrder.prazo_pagamento} dias</span></div>
                   </CardContent>
                 </Card>
 
@@ -204,10 +272,21 @@ export default function CometaPedidos() {
                   </Card>
                 </div>
 
+                {selectedOrder.observacao && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Observação</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">{selectedOrder.observacao}</p>
+                    </CardContent>
+                  </Card>
+                )}
+
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium flex items-center gap-2">
-                      <Package className="h-4 w-4" /> Produtos ({selectedOrder.itens} itens)
+                      <Package className="h-4 w-4" /> Produtos ({selectedOrder.itens} produto(s) — {selectedOrder.total_unidades} unidades)
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -216,7 +295,9 @@ export default function CometaPedidos() {
                         <div key={idx} className="flex justify-between items-center py-2 border-b last:border-0">
                           <div>
                             <p className="font-medium text-sm">{produto.nome}</p>
-                            <p className="text-xs text-muted-foreground">Qtd: {produto.qtd}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Cód: {produto.codigo} | EAN: {produto.ean} | Qtd: {produto.qtd} un | R$ {produto.valor_unitario.toFixed(2).replace(".", ",")} /un
+                            </p>
                           </div>
                           <p className="font-semibold text-sm">{produto.valor}</p>
                         </div>
@@ -224,17 +305,6 @@ export default function CometaPedidos() {
                     </div>
                   </CardContent>
                 </Card>
-
-                {selectedOrder.status === "pendente" && (
-                  <div className="flex gap-3 pt-2">
-                    <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => handleConfirm(selectedOrder.id)}>
-                      <CheckCircle className="h-4 w-4 mr-2" /> Confirmar Pedido
-                    </Button>
-                    <Button variant="destructive" className="flex-1" onClick={() => handleCancel(selectedOrder.id)}>
-                      <XCircle className="h-4 w-4 mr-2" /> Cancelar Pedido
-                    </Button>
-                  </div>
-                )}
               </div>
             </>
           )}

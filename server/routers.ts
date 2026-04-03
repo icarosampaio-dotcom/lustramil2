@@ -11,6 +11,7 @@ import * as db from "./db";
 import { logAudit, isAllowedFileType, isAllowedFileSize, sanitizeString } from "./security";
 import { parseNFeXml, getEntityFromNFe } from "./nfeParser";
 import { generateExcel, generatePDF, generatePayableExcel, generateReceivableExcel, generateCashExcel, generateEntityGroupExcel, generateMaterialGroupExcel, generateRankingExcel } from "./exportReport";
+import { cometaSyncService } from "./cometa-sync-service";
 
 // Helper to get IP from context
 function getIp(req: any): string {
@@ -1443,6 +1444,100 @@ export const appRouter = router({
     }),
     getByClient: protectedProcedure.input(z.object({ clientName: z.string() })).query(async ({ input }) => {
       return db.getCommissionByClient(input.clientName);
+    }),
+  }),
+  // ─── Integração Cometa Supermercados ────────────────────────────
+  cometa: router({
+    pedidos: protectedProcedure.query(async () => {
+      const pedidos = await cometaSyncService.getPedidos();
+      // Agrupar itens por número de pedido
+      const pedidosMap = new Map<string, any>();
+      for (const item of pedidos) {
+        const key = item.numero_pedido;
+        if (!pedidosMap.has(key)) {
+          pedidosMap.set(key, {
+            id: item.numero_pedido,
+            numero_pedido: item.numero_pedido,
+            data: item.data_emissao_pedido,
+            loja: `Loja ${item.loja}`,
+            loja_numero: item.loja,
+            cnpj: item.cnpj,
+            status: item.status_pedido === "P" ? "pendente" : "entregue",
+            status_raw: item.status_pedido,
+            frete: item.frete,
+            comprador: item.comprador,
+            prazo_pagamento: item.prazo_pagamento,
+            observacao: item.observacao,
+            produtos: [],
+            valor_total: 0,
+            total_unidades: 0,
+          });
+        }
+        const pedido = pedidosMap.get(key)!;
+        pedido.produtos.push({
+          nome: item.descricao_produto,
+          codigo: item.codigo_produto,
+          ean: item.ean_produto,
+          qtd: item.total_unidades,
+          qtd_embalagem: item.qtd_embalagem,
+          valor_unitario: item.valor_bruto_unitario,
+          valor: `R$ ${item.valor_total.toFixed(2).replace(".", ",")}`,
+          valor_numerico: item.valor_total,
+        });
+        pedido.valor_total += item.valor_total;
+        pedido.total_unidades += item.total_unidades;
+      }
+      return Array.from(pedidosMap.values()).map(p => ({
+        ...p,
+        total: `R$ ${p.valor_total.toFixed(2).replace(".", ",")}`,
+        itens: p.produtos.length,
+      }));
+    }),
+    estoque: protectedProcedure.query(async () => {
+      const estoque = await cometaSyncService.getEstoque();
+      return estoque.map(item => ({
+        id: `${item.loja}-${item.codigo_produto}`,
+        codigo_produto: item.codigo_produto,
+        nome: item.descricao_produto,
+        ean: item.ean,
+        loja: `Loja ${item.loja}`,
+        loja_numero: item.loja,
+        quantidade: item.estq_loja,
+        quantidade_avaria: item.estq_avaria,
+        status: item.estq_loja === 0 ? "zerado" : item.estq_loja < 10 ? "baixo" : "ok",
+      }));
+    }),
+    vendas: protectedProcedure.query(async () => {
+      const vendas = await cometaSyncService.getVendas();
+      return vendas.map(v => ({
+        loja: v.LOJA.LOJA,
+        nome_loja: v.LOJA.NOME,
+        cnpj: v.LOJA.CNPJ,
+        vendas: v.VENDAS.map(item => ({
+          data: item.DATA,
+          ean: item.EAN,
+          cod_interno: item.COD_INTERNO,
+          produto: item.PRODUTO,
+          qtd: item.QTD,
+          venda: item.VENDA,
+          custo: item.CUSTO,
+        })),
+        total_venda: v.VENDAS.reduce((sum, item) => sum + item.VENDA, 0),
+        total_itens: v.VENDAS.reduce((sum, item) => sum + item.QTD, 0),
+      }));
+    }),
+    lojas: protectedProcedure.query(async () => {
+      return cometaSyncService.getLojas();
+    }),
+    produtos: protectedProcedure.query(async () => {
+      return cometaSyncService.getProdutos();
+    }),
+    syncStatus: protectedProcedure.query(async () => {
+      return cometaSyncService.getSyncStatus();
+    }),
+    forceSync: protectedProcedure.mutation(async () => {
+      cometaSyncService.invalidateCache();
+      return { success: true, message: "Cache invalidado. Próxima consulta buscará dados atualizados." };
     }),
   }),
 });
