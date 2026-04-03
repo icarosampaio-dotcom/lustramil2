@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ShoppingCart, Download, Eye, Package, MapPin, Calendar, DollarSign, RefreshCw, Loader2 } from "lucide-react";
+import { ShoppingCart, Download, Eye, Package, MapPin, Calendar, DollarSign, RefreshCw, Loader2, FileText, FileSpreadsheet, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
@@ -45,10 +45,25 @@ type Order = {
   itens: number;
 };
 
+function downloadBase64File(base64: string, filename: string, mimeType: string) {
+  const byteChars = atob(base64);
+  const byteNums = new Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+  const blob = new Blob([new Uint8Array(byteNums)], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function CometaPedidos() {
   const [filter, setFilter] = useState("todos");
   const [search, setSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [showRelatorioModal, setShowRelatorioModal] = useState(false);
+  const [relatorioStatus, setRelatorioStatus] = useState<"pendente" | "entregue" | "todos">("pendente");
 
   const { data: orders = [], isLoading, refetch, isFetching } = trpc.cometa.pedidos.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -65,6 +80,28 @@ export default function CometaPedidos() {
     },
   });
 
+  const exportPDFMutation = trpc.cometa.exportPedidosPDF.useMutation({
+    onSuccess: (result) => {
+      downloadBase64File(result.base64, result.filename, result.mimeType);
+      toast.success("Relatório PDF gerado com sucesso!");
+      setShowRelatorioModal(false);
+    },
+    onError: (err) => {
+      toast.error("Erro ao gerar relatório PDF: " + err.message);
+    },
+  });
+
+  const exportExcelMutation = trpc.cometa.exportPedidosExcel.useMutation({
+    onSuccess: (result) => {
+      downloadBase64File(result.base64, result.filename, result.mimeType);
+      toast.success("Planilha Excel gerada com sucesso!");
+      setShowRelatorioModal(false);
+    },
+    onError: (err) => {
+      toast.error("Erro ao gerar planilha: " + err.message);
+    },
+  });
+
   const filteredOrders = orders.filter((order: Order) => {
     const matchFilter = filter === "todos" || order.status === filter;
     const matchSearch = order.id.toLowerCase().includes(search.toLowerCase()) ||
@@ -73,21 +110,20 @@ export default function CometaPedidos() {
     return matchFilter && matchSearch;
   });
 
-  const handleView = (order: Order) => {
-    setSelectedOrder(order);
-  };
-
-  const handleExport = () => {
-    toast.success("Pedidos exportados para Excel!");
-  };
-
-  const handleForceSync = () => {
-    forceSyncMutation.mutate();
-  };
+  const handleView = (order: Order) => setSelectedOrder(order);
+  const handleForceSync = () => forceSyncMutation.mutate();
 
   const totalPendentes = orders.filter((o: Order) => o.status === "pendente").length;
   const totalEntregues = orders.filter((o: Order) => o.status === "entregue").length;
   const valorTotal = orders.reduce((sum: number, o: Order) => sum + o.valor_total, 0);
+
+  const isExporting = exportPDFMutation.isPending || exportExcelMutation.isPending;
+
+  const statusLabels = {
+    pendente: "Pendentes (para separar/produzir)",
+    entregue: "Entregues/Baixados",
+    todos: "Todos os pedidos",
+  };
 
   return (
     <div className="space-y-6">
@@ -105,9 +141,14 @@ export default function CometaPedidos() {
             )}
             Atualizar
           </Button>
-          <Button onClick={handleExport}>
-            <Download className="h-4 w-4 mr-2" />
-            Exportar Excel
+          <Button
+            variant="outline"
+            onClick={() => setShowRelatorioModal(true)}
+            disabled={isLoading || orders.length === 0}
+            className="border-blue-300 text-blue-700 hover:bg-blue-50"
+          >
+            <Printer className="h-4 w-4 mr-2" />
+            Gerar Relatório
           </Button>
         </div>
       </div>
@@ -225,7 +266,101 @@ export default function CometaPedidos() {
         </CardContent>
       </Card>
 
-      {/* Modal de Detalhes */}
+      {/* ─── Modal de Relatório ─────────────────────────────────────────────── */}
+      <Dialog open={showRelatorioModal} onOpenChange={setShowRelatorioModal}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Printer className="h-5 w-5 text-blue-600" />
+              Gerar Relatório de Pedidos
+            </DialogTitle>
+            <DialogDescription>
+              Selecione o tipo de relatório e o formato desejado para download.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5 mt-2">
+            {/* Seleção de status */}
+            <div>
+              <label className="text-sm font-medium mb-2 block">Pedidos a incluir:</label>
+              <div className="grid grid-cols-3 gap-2">
+                {(["pendente", "entregue", "todos"] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setRelatorioStatus(s)}
+                    className={`p-3 rounded-lg border-2 text-sm font-medium transition-all text-left ${
+                      relatorioStatus === s
+                        ? "border-blue-500 bg-blue-50 text-blue-700"
+                        : "border-gray-200 hover:border-gray-300 text-gray-600"
+                    }`}
+                  >
+                    <div className="font-semibold capitalize">
+                      {s === "pendente" ? "⏳ Pendentes" : s === "entregue" ? "✅ Entregues" : "📋 Todos"}
+                    </div>
+                    <div className="text-xs mt-1 font-normal text-gray-500">
+                      {s === "pendente"
+                        ? `${totalPendentes} pedido(s)`
+                        : s === "entregue"
+                        ? `${totalEntregues} pedido(s)`
+                        : `${orders.length} pedido(s)`}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Descrição do relatório selecionado */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+              <p className="font-medium mb-1">📄 O relatório incluirá:</p>
+              <ul className="space-y-1 text-xs text-blue-700">
+                <li>• Resumo com total de pedidos, unidades e valor</li>
+                <li>• <strong>Consolidado por produto</strong> (soma de todas as quantidades)</li>
+                <li>• Detalhamento por pedido agrupado por loja</li>
+                <li>• Produtos, quantidades, EANs e valores de cada pedido</li>
+              </ul>
+            </div>
+
+            {/* Botões de download */}
+            <div className="grid grid-cols-2 gap-3">
+              <Button
+                onClick={() => exportPDFMutation.mutate({ filtroStatus: relatorioStatus })}
+                disabled={isExporting}
+                className="bg-red-600 hover:bg-red-700 text-white h-14 flex-col gap-1"
+              >
+                {exportPDFMutation.isPending ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <FileText className="h-5 w-5" />
+                )}
+                <span className="text-xs">
+                  {exportPDFMutation.isPending ? "Gerando..." : "Baixar PDF"}
+                </span>
+              </Button>
+
+              <Button
+                onClick={() => exportExcelMutation.mutate({ filtroStatus: relatorioStatus })}
+                disabled={isExporting}
+                className="bg-green-600 hover:bg-green-700 text-white h-14 flex-col gap-1"
+              >
+                {exportExcelMutation.isPending ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="h-5 w-5" />
+                )}
+                <span className="text-xs">
+                  {exportExcelMutation.isPending ? "Gerando..." : "Baixar Excel"}
+                </span>
+              </Button>
+            </div>
+
+            <p className="text-xs text-muted-foreground text-center">
+              O PDF é ideal para imprimir e entregar à expedição. O Excel permite análise detalhada.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Modal de Detalhes do Pedido ────────────────────────────────────── */}
       <Dialog open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           {selectedOrder && (

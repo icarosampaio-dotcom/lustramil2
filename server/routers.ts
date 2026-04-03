@@ -10,7 +10,7 @@ import { nanoid } from "nanoid";
 import * as db from "./db";
 import { logAudit, isAllowedFileType, isAllowedFileSize, sanitizeString } from "./security";
 import { parseNFeXml, getEntityFromNFe } from "./nfeParser";
-import { generateExcel, generatePDF, generatePayableExcel, generateReceivableExcel, generateCashExcel, generateEntityGroupExcel, generateMaterialGroupExcel, generateRankingExcel } from "./exportReport";
+import { generateExcel, generatePDF, generatePayableExcel, generateReceivableExcel, generateCashExcel, generateEntityGroupExcel, generateMaterialGroupExcel, generateRankingExcel, generateCometaPedidosPDF, generateCometaPedidosExcel, type CometaPedidoRelatorio } from "./exportReport";
 import { cometaSyncService } from "./cometa-sync-service";
 
 // Helper to get IP from context
@@ -1538,6 +1538,123 @@ export const appRouter = router({
     forceSync: protectedProcedure.mutation(async () => {
       cometaSyncService.invalidateCache();
       return { success: true, message: "Cache invalidado. Próxima consulta buscará dados atualizados." };
+    }),
+
+    exportPedidosPDF: protectedProcedure.input(z.object({
+      filtroStatus: z.enum(["pendente", "entregue", "todos"]).default("pendente"),
+    })).mutation(async ({ input }) => {
+      // Buscar e montar pedidos
+      const pedidosRaw = await cometaSyncService.getPedidos();
+      const pedidosMap = new Map<string, CometaPedidoRelatorio>();
+      for (const item of pedidosRaw) {
+        const key = item.numero_pedido;
+        if (!pedidosMap.has(key)) {
+          pedidosMap.set(key, {
+            id: item.numero_pedido,
+            numero_pedido: item.numero_pedido,
+            data: item.data_emissao_pedido,
+            loja: `Loja ${item.loja}`,
+            loja_numero: item.loja,
+            cnpj: item.cnpj,
+            status: item.status_pedido === "P" ? "pendente" : "entregue",
+            status_raw: item.status_pedido,
+            frete: item.frete,
+            comprador: item.comprador,
+            prazo_pagamento: item.prazo_pagamento,
+            observacao: item.observacao,
+            produtos: [],
+            valor_total: 0,
+            total_unidades: 0,
+            total: "",
+            itens: 0,
+          });
+        }
+        const pedido = pedidosMap.get(key)!;
+        pedido.produtos.push({
+          nome: item.descricao_produto,
+          codigo: item.codigo_produto,
+          ean: item.ean_produto,
+          qtd: item.total_unidades,
+          qtd_embalagem: item.qtd_embalagem,
+          valor_unitario: item.valor_bruto_unitario,
+          valor: `R$ ${item.valor_total.toFixed(2).replace(".", ",")}`,
+          valor_numerico: item.valor_total,
+        });
+        pedido.valor_total += item.valor_total;
+        pedido.total_unidades += item.total_unidades;
+      }
+      const pedidos = Array.from(pedidosMap.values()).map(p => ({
+        ...p,
+        total: `R$ ${p.valor_total.toFixed(2).replace(".", ",")}`,
+        itens: p.produtos.length,
+      }));
+
+      const buffer = await generateCometaPedidosPDF(pedidos, input.filtroStatus);
+      const base64 = buffer.toString("base64");
+      const statusLabel = input.filtroStatus === "pendente" ? "pendentes" : input.filtroStatus === "entregue" ? "entregues" : "todos";
+      return {
+        base64,
+        filename: `pedidos-cometa-${statusLabel}-${new Date().toISOString().split("T")[0]}.pdf`,
+        mimeType: "application/pdf",
+      };
+    }),
+
+    exportPedidosExcel: protectedProcedure.input(z.object({
+      filtroStatus: z.enum(["pendente", "entregue", "todos"]).default("pendente"),
+    })).mutation(async ({ input }) => {
+      const pedidosRaw = await cometaSyncService.getPedidos();
+      const pedidosMap = new Map<string, CometaPedidoRelatorio>();
+      for (const item of pedidosRaw) {
+        const key = item.numero_pedido;
+        if (!pedidosMap.has(key)) {
+          pedidosMap.set(key, {
+            id: item.numero_pedido,
+            numero_pedido: item.numero_pedido,
+            data: item.data_emissao_pedido,
+            loja: `Loja ${item.loja}`,
+            loja_numero: item.loja,
+            cnpj: item.cnpj,
+            status: item.status_pedido === "P" ? "pendente" : "entregue",
+            status_raw: item.status_pedido,
+            frete: item.frete,
+            comprador: item.comprador,
+            prazo_pagamento: item.prazo_pagamento,
+            observacao: item.observacao,
+            produtos: [],
+            valor_total: 0,
+            total_unidades: 0,
+            total: "",
+            itens: 0,
+          });
+        }
+        const pedido = pedidosMap.get(key)!;
+        pedido.produtos.push({
+          nome: item.descricao_produto,
+          codigo: item.codigo_produto,
+          ean: item.ean_produto,
+          qtd: item.total_unidades,
+          qtd_embalagem: item.qtd_embalagem,
+          valor_unitario: item.valor_bruto_unitario,
+          valor: `R$ ${item.valor_total.toFixed(2).replace(".", ",")}`,
+          valor_numerico: item.valor_total,
+        });
+        pedido.valor_total += item.valor_total;
+        pedido.total_unidades += item.total_unidades;
+      }
+      const pedidos = Array.from(pedidosMap.values()).map(p => ({
+        ...p,
+        total: `R$ ${p.valor_total.toFixed(2).replace(".", ",")}`,
+        itens: p.produtos.length,
+      }));
+
+      const buffer = await generateCometaPedidosExcel(pedidos, input.filtroStatus);
+      const base64 = buffer.toString("base64");
+      const statusLabel = input.filtroStatus === "pendente" ? "pendentes" : input.filtroStatus === "entregue" ? "entregues" : "todos";
+      return {
+        base64,
+        filename: `pedidos-cometa-${statusLabel}-${new Date().toISOString().split("T")[0]}.xlsx`,
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      };
     }),
   }),
 });

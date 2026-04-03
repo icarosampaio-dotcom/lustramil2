@@ -870,3 +870,356 @@ export async function generateRankingExcel(
   const buf = await workbook.xlsx.writeBuffer();
   return Buffer.from(buf);
 }
+
+// ─── Interfaces para Pedidos Cometa ─────────────────────────────────────────
+
+export interface CometaPedidoRelatorio {
+  id: string;
+  numero_pedido: string;
+  data: string;
+  loja: string;
+  loja_numero: number;
+  cnpj: string;
+  status: string;
+  status_raw: string;
+  frete: string;
+  comprador: { nome: string; codigo: string };
+  prazo_pagamento: string;
+  observacao: string;
+  produtos: {
+    nome: string;
+    codigo: string;
+    ean: string;
+    qtd: number;
+    qtd_embalagem: number;
+    valor_unitario: number;
+    valor: string;
+    valor_numerico: number;
+  }[];
+  valor_total: number;
+  total_unidades: number;
+  total: string;
+  itens: number;
+}
+
+// ─── PDF de Pedidos Pendentes (Expedição) ────────────────────────────────────
+
+export function generateCometaPedidosPDF(
+  pedidos: CometaPedidoRelatorio[],
+  filtroStatus: "pendente" | "entregue" | "todos" = "pendente"
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", margin: 40, info: {
+      Title: "Relatório de Pedidos - Lustra Mil",
+      Author: "Lustra Mil - Produtos de Limpeza",
+    }});
+
+    const chunks: Buffer[] = [];
+    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    const blue = "#1e40af";
+    const green = "#059669";
+    const orange = "#d97706";
+    const red = "#dc2626";
+    const gray = "#64748b";
+    const lightBlue = "#eff6ff";
+    const lightGray = "#f8fafc";
+    const darkGray = "#374151";
+
+    const pedidosFiltrados = filtroStatus === "todos"
+      ? pedidos
+      : pedidos.filter(p => p.status === filtroStatus);
+
+    const totalValor = pedidosFiltrados.reduce((s, p) => s + p.valor_total, 0);
+    const totalUnidades = pedidosFiltrados.reduce((s, p) => s + p.total_unidades, 0);
+    const totalProdutosDistintos = new Set(
+      pedidosFiltrados.flatMap(p => p.produtos.map(pr => pr.codigo))
+    ).size;
+
+    const statusLabel = filtroStatus === "pendente" ? "Pendentes" : filtroStatus === "entregue" ? "Entregues" : "Todos";
+    const dataGeracao = new Date().toLocaleDateString("pt-BR") + " às " + new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+    // ─── Cabeçalho ────────────────────────────────────────────────────────────
+    const logoPath = getLogoPath();
+    if (logoPath) {
+      try { doc.image(logoPath, 40, 35, { width: 110, height: 44 }); } catch (_) {}
+    }
+
+    // Título à direita
+    doc.fontSize(18).fillColor(blue).text("RELATÓRIO DE PEDIDOS", 0, 38, { align: "right" });
+    doc.fontSize(10).fillColor(gray).text(`Cometa Supermercados — ${statusLabel}`, 0, 60, { align: "right" });
+    doc.fontSize(8).fillColor(gray).text(`Emitido em: ${dataGeracao}`, 0, 74, { align: "right" });
+
+    doc.moveTo(40, 88).lineTo(555, 88).strokeColor(blue).lineWidth(2).stroke();
+    doc.y = 98;
+
+    // ─── Cards de resumo ──────────────────────────────────────────────────────
+    const cardW = 120;
+    const cardH = 52;
+    const cardY = doc.y;
+    const cards = [
+      { label: "PEDIDOS", value: String(pedidosFiltrados.length), sub: statusLabel, color: blue },
+      { label: "UNIDADES", value: totalUnidades.toString(), sub: "para separar", color: green },
+      { label: "PRODUTOS DISTINTOS", value: String(totalProdutosDistintos), sub: "SKUs diferentes", color: orange },
+      { label: "VALOR TOTAL", value: formatCurrency(totalValor), sub: "todos os pedidos", color: red },
+    ];
+    cards.forEach((card, i) => {
+      const x = 40 + i * (cardW + 8);
+      doc.rect(x, cardY, cardW, cardH).fillAndStroke(lightBlue, blue);
+      doc.fontSize(7).fillColor(gray).text(card.label, x + 6, cardY + 6, { width: cardW - 12 });
+      doc.fontSize(13).fillColor(card.color).text(card.value, x + 6, cardY + 18, { width: cardW - 12 });
+      doc.fontSize(7).fillColor(gray).text(card.sub, x + 6, cardY + 36, { width: cardW - 12 });
+    });
+    doc.y = cardY + cardH + 14;
+
+    // ─── Consolidado de Produtos (para produção) ──────────────────────────────
+    doc.fontSize(11).fillColor(blue).text("CONSOLIDADO PARA PRODUÇÃO / SEPARAÇÃO", 40, doc.y, { underline: false });
+    doc.fontSize(8).fillColor(gray).text("Soma total de cada produto em todos os pedidos pendentes", 40, doc.y);
+    doc.moveDown(0.4);
+
+    // Consolidar produtos
+    const prodMap = new Map<string, { nome: string; codigo: string; ean: string; qtd: number; valor_total: number }>();
+    pedidosFiltrados.forEach(pedido => {
+      pedido.produtos.forEach(pr => {
+        const key = pr.codigo;
+        if (!prodMap.has(key)) {
+          prodMap.set(key, { nome: pr.nome, codigo: pr.codigo, ean: pr.ean, qtd: 0, valor_total: 0 });
+        }
+        const entry = prodMap.get(key)!;
+        entry.qtd += pr.qtd;
+        entry.valor_total += pr.valor_numerico;
+      });
+    });
+    const prodConsolidados = Array.from(prodMap.values()).sort((a, b) => b.qtd - a.qtd);
+
+    // Tabela consolidada
+    const tX = 40;
+    const colsConsolidado = [40, 200, 100, 70, 100];
+    const headersConsolidado = ["Cód.", "Produto", "EAN", "Qtd Total", "Valor Total"];
+    const hY = doc.y;
+    doc.rect(tX, hY, 515, 16).fill(blue);
+    let xp = tX;
+    headersConsolidado.forEach((h, i) => {
+      doc.fontSize(8).fillColor("white").text(h, xp + 3, hY + 4, { width: colsConsolidado[i] - 6, align: i >= 3 ? "right" : "left" });
+      xp += colsConsolidado[i];
+    });
+    doc.y = hY + 16;
+
+    prodConsolidados.forEach((pr, idx) => {
+      if (doc.y > 720) { doc.addPage(); doc.y = 40; }
+      const rowY = doc.y;
+      const bg = idx % 2 === 0 ? "white" : lightGray;
+      doc.rect(tX, rowY, 515, 14).fill(bg);
+      let xr = tX;
+      const rowData = [pr.codigo, pr.nome, pr.ean, pr.qtd.toString(), formatCurrency(pr.valor_total)];
+      rowData.forEach((val, i) => {
+        doc.fontSize(7.5).fillColor(darkGray).text(val, xr + 3, rowY + 3, {
+          width: colsConsolidado[i] - 6,
+          align: i >= 3 ? "right" : "left",
+          ellipsis: true,
+        });
+        xr += colsConsolidado[i];
+      });
+      doc.y = rowY + 14;
+    });
+
+    // Linha de total
+    const totY = doc.y;
+    doc.rect(tX, totY, 515, 16).fill("#e0e7ff");
+    doc.fontSize(8).fillColor(blue).text("TOTAL GERAL", tX + 3, totY + 4, { width: 340 });
+    doc.fontSize(8).fillColor(blue).text(totalUnidades.toString(), tX + 340, totY + 4, { width: 70, align: "right" });
+    doc.fontSize(8).fillColor(blue).text(formatCurrency(totalValor), tX + 410, totY + 4, { width: 100, align: "right" });
+    doc.y = totY + 24;
+
+    // ─── Detalhamento por Pedido ──────────────────────────────────────────────
+    doc.addPage();
+    doc.y = 40;
+    doc.fontSize(13).fillColor(blue).text("DETALHAMENTO POR PEDIDO", 40, doc.y);
+    doc.fontSize(8).fillColor(gray).text("Pedidos agrupados por loja com produtos e quantidades", 40, doc.y);
+    doc.moveDown(0.6);
+
+    // Ordenar por loja
+    const pedidosOrdenados = [...pedidosFiltrados].sort((a, b) => a.loja_numero - b.loja_numero);
+
+    pedidosOrdenados.forEach((pedido) => {
+      if (doc.y > 680) { doc.addPage(); doc.y = 40; }
+
+      // Cabeçalho do pedido
+      const pedY = doc.y;
+      const statusColor = pedido.status === "pendente" ? orange : green;
+      doc.rect(40, pedY, 515, 22).fill(lightBlue);
+      doc.rect(40, pedY, 4, 22).fill(blue);
+      doc.fontSize(9).fillColor(blue).text(`Pedido #${pedido.numero_pedido}`, 50, pedY + 4);
+      doc.fontSize(8).fillColor(gray).text(`${pedido.loja}  •  ${pedido.data}  •  ${pedido.itens} produto(s)  •  ${pedido.total_unidades} unidades`, 50, pedY + 14);
+      doc.fontSize(9).fillColor(statusColor).text(pedido.status === "pendente" ? "PENDENTE" : "ENTREGUE", 0, pedY + 4, { align: "right" });
+      doc.fontSize(9).fillColor(blue).text(pedido.total, 0, pedY + 14, { align: "right" });
+      doc.y = pedY + 26;
+
+      // Produtos do pedido
+      const colsProd = [40, 185, 90, 50, 55, 75, 80];
+      const headersProd = ["Cód.", "Produto", "EAN", "Qtd", "Emb.", "Vl. Unit.", "Total"];
+      const hpY = doc.y;
+      doc.rect(40, hpY, 515, 13).fill("#dbeafe");
+      let xh = 40;
+      headersProd.forEach((h, i) => {
+        doc.fontSize(7).fillColor(blue).text(h, xh + 2, hpY + 3, { width: colsProd[i] - 4, align: i >= 3 ? "right" : "left" });
+        xh += colsProd[i];
+      });
+      doc.y = hpY + 13;
+
+      pedido.produtos.forEach((pr, idx) => {
+        if (doc.y > 730) { doc.addPage(); doc.y = 40; }
+        const prY = doc.y;
+        const bg = idx % 2 === 0 ? "white" : "#f9fafb";
+        doc.rect(40, prY, 515, 13).fill(bg);
+        let xpr = 40;
+        const vals = [pr.codigo, pr.nome, pr.ean, String(pr.qtd), String(pr.qtd_embalagem), formatCurrency(pr.valor_unitario), pr.valor];
+        vals.forEach((v, i) => {
+          doc.fontSize(7).fillColor(darkGray).text(v, xpr + 2, prY + 3, {
+            width: colsProd[i] - 4,
+            align: i >= 3 ? "right" : "left",
+            ellipsis: true,
+          });
+          xpr += colsProd[i];
+        });
+        doc.y = prY + 13;
+      });
+
+      // Observação
+      if (pedido.observacao) {
+        const obsY = doc.y;
+        doc.rect(40, obsY, 515, 12).fill("#fef9c3");
+        doc.fontSize(6.5).fillColor("#92400e").text(`Obs: ${pedido.observacao}`, 44, obsY + 3, { width: 507, ellipsis: true });
+        doc.y = obsY + 12;
+      }
+
+      doc.moveDown(0.5);
+    });
+
+    // ─── Rodapé ───────────────────────────────────────────────────────────────
+    const range = doc.bufferedPageRange();
+    for (let i = 0; i < range.count; i++) {
+      doc.switchToPage(range.start + i);
+      doc.fontSize(7).fillColor(gray).text(
+        `Lustra Mil — Relatório de Pedidos ${statusLabel} — Página ${i + 1} de ${range.count}`,
+        40, 820, { align: "center", width: 515 }
+      );
+    }
+
+    doc.end();
+  });
+}
+
+// ─── Excel de Pedidos Cometa ──────────────────────────────────────────────────
+
+export async function generateCometaPedidosExcel(
+  pedidos: CometaPedidoRelatorio[],
+  filtroStatus: "pendente" | "entregue" | "todos" = "pendente"
+): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Lustra Mil";
+
+  const pedidosFiltrados = filtroStatus === "todos"
+    ? pedidos
+    : pedidos.filter(p => p.status === filtroStatus);
+
+  const statusLabel = filtroStatus === "pendente" ? "Pendentes" : filtroStatus === "entregue" ? "Entregues" : "Todos";
+
+  // ─── Aba 1: Consolidado por Produto ──────────────────────────────────────
+  const sheetConsolidado = workbook.addWorksheet("Consolidado por Produto", {
+    properties: { tabColor: { argb: "FF1E40AF" } },
+  });
+
+  sheetConsolidado.mergeCells("A1:G1");
+  const t1 = sheetConsolidado.getCell("A1");
+  t1.value = `Lustra Mil — Pedidos ${statusLabel} — Consolidado por Produto`;
+  t1.font = { size: 14, bold: true, color: { argb: "FF1E40AF" } };
+  t1.alignment = { horizontal: "center" };
+
+  sheetConsolidado.mergeCells("A2:G2");
+  const t2 = sheetConsolidado.getCell("A2");
+  t2.value = `Gerado em: ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR")}`;
+  t2.font = { size: 9, color: { argb: "FF666666" } };
+  t2.alignment = { horizontal: "center" };
+
+  sheetConsolidado.addRow([]);
+
+  const hConsolidado = sheetConsolidado.addRow(["Código", "Produto", "EAN", "Qtd Total", "Valor Total (R$)", "Pedidos", "Lojas"]);
+  hConsolidado.eachCell(cell => {
+    cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 10 };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E40AF" } };
+    cell.alignment = { horizontal: "center" };
+    cell.border = { bottom: { style: "thin", color: { argb: "FFCCCCCC" } } };
+  });
+
+  const prodMap = new Map<string, { nome: string; codigo: string; ean: string; qtd: number; valor: number; pedidos: Set<string>; lojas: Set<string> }>();
+  pedidosFiltrados.forEach(pedido => {
+    pedido.produtos.forEach(pr => {
+      if (!prodMap.has(pr.codigo)) {
+        prodMap.set(pr.codigo, { nome: pr.nome, codigo: pr.codigo, ean: pr.ean, qtd: 0, valor: 0, pedidos: new Set(), lojas: new Set() });
+      }
+      const e = prodMap.get(pr.codigo)!;
+      e.qtd += pr.qtd;
+      e.valor += pr.valor_numerico;
+      e.pedidos.add(pedido.numero_pedido);
+      e.lojas.add(pedido.loja);
+    });
+  });
+
+  Array.from(prodMap.values()).sort((a, b) => b.qtd - a.qtd).forEach((pr, idx) => {
+    const row = sheetConsolidado.addRow([pr.codigo, pr.nome, pr.ean, pr.qtd, pr.valor, pr.pedidos.size, pr.lojas.size]);
+    if (idx % 2 === 1) {
+      row.eachCell(cell => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0F4FF" } }; });
+    }
+    row.getCell(5).numFmt = '"R$"#,##0.00';
+  });
+
+  [12, 40, 18, 12, 18, 10, 10].forEach((w, i) => { sheetConsolidado.getColumn(i + 1).width = w; });
+
+  // ─── Aba 2: Detalhamento por Pedido ──────────────────────────────────────
+  const sheetPedidos = workbook.addWorksheet("Pedidos Detalhados", {
+    properties: { tabColor: { argb: "FF059669" } },
+  });
+
+  sheetPedidos.mergeCells("A1:J1");
+  const t3 = sheetPedidos.getCell("A1");
+  t3.value = `Lustra Mil — Pedidos ${statusLabel} — Detalhamento Completo`;
+  t3.font = { size: 14, bold: true, color: { argb: "FF1E40AF" } };
+  t3.alignment = { horizontal: "center" };
+  sheetPedidos.addRow([]);
+
+  const hPedidos = sheetPedidos.addRow(["Pedido", "Data", "Loja", "CNPJ", "Status", "Código Produto", "Produto", "EAN", "Qtd", "Valor (R$)"]);
+  hPedidos.eachCell(cell => {
+    cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 10 };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF059669" } };
+    cell.alignment = { horizontal: "center" };
+  });
+
+  pedidosFiltrados.sort((a, b) => a.loja_numero - b.loja_numero).forEach(pedido => {
+    pedido.produtos.forEach((pr, idx) => {
+      const row = sheetPedidos.addRow([
+        pedido.numero_pedido,
+        pedido.data,
+        pedido.loja,
+        pedido.cnpj,
+        pedido.status === "pendente" ? "Pendente" : "Entregue",
+        pr.codigo,
+        pr.nome,
+        pr.ean,
+        pr.qtd,
+        pr.valor_numerico,
+      ]);
+      if (idx % 2 === 1) {
+        row.eachCell(cell => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0FDF4" } }; });
+      }
+      row.getCell(10).numFmt = '"R$"#,##0.00';
+    });
+  });
+
+  [14, 12, 12, 18, 12, 12, 40, 18, 10, 14].forEach((w, i) => { sheetPedidos.getColumn(i + 1).width = w; });
+
+  const buf = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
