@@ -20,8 +20,5 @@ RUN pnpm run build
 # Create necessary directories
 RUN mkdir -p data logs backups
 
-# Expose port
-EXPOSE 3000
-
-# Start application
+# Start application (PORT is injected by Railway automatically)
 CMD ["node", "dist/index.js"]
