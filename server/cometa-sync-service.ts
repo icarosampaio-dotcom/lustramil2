@@ -1,6 +1,14 @@
 import crypto from "crypto";
 
+import https from "https";
+
 const COMETA_API_URL = "https://vendas.cometasupermercados.com.br";
+
+// Agente HTTPS que ignora verificação de certificado (necessário para a API do Cometa)
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false,
+  minVersion: "TLSv1",
+});
 const COMETA_EMAIL = "lustramil@yahoo.com.br";
 const COMETA_PASSWORD = "oddRlCP4zn2o";
 
@@ -111,6 +119,23 @@ class CometaSyncService {
   private CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 
   /**
+   * Faz uma requisição HTTP usando o módulo https nativo (suporta agente customizado)
+   */
+  private httpsRequest(options: https.RequestOptions, body?: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const req = https.request({ ...options, agent: httpsAgent }, (res) => {
+        let data = "";
+        res.on("data", (chunk) => { data += chunk; });
+        res.on("end", () => resolve(data));
+      });
+      req.on("error", reject);
+      req.setTimeout(30000, () => { req.destroy(new Error("Timeout")); });
+      if (body) req.write(body);
+      req.end();
+    });
+  }
+
+  /**
    * Autentica na API do Cometa e retorna o token
    */
   async authenticate(): Promise<string> {
@@ -120,19 +145,22 @@ class CometaSyncService {
     }
 
     try {
-      const response = await fetch(`${COMETA_API_URL}/login`, {
+      const body = JSON.stringify({ email: COMETA_EMAIL, password: COMETA_PASSWORD });
+      const raw = await this.httpsRequest({
+        hostname: "vendas.cometasupermercados.com.br",
+        path: "/login",
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: COMETA_EMAIL, password: COMETA_PASSWORD }),
-        signal: AbortSignal.timeout(15000),
-      });
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+        },
+      }, body);
 
-      if (!response.ok) {
-        throw new Error(`Falha na autenticação: ${response.status}`);
+      const token = raw.trim();
+      if (!token || token.startsWith("{")) {
+        throw new Error(`Resposta inesperada no login: ${token.substring(0, 100)}`);
       }
-
-      const token = await response.text();
-      this.authToken = token.trim();
+      this.authToken = token;
       // Token válido por 23 horas
       this.tokenExpiry = new Date(Date.now() + 23 * 60 * 60 * 1000);
       console.log("Autenticado na API do Cometa com sucesso");
@@ -148,16 +176,21 @@ class CometaSyncService {
    */
   private async fetchCometa(endpoint: string): Promise<any> {
     const token = await this.authenticate();
-    const response = await fetch(`${COMETA_API_URL}${endpoint}`, {
-      headers: { "Authorization": `Bearer ${token}` },
-      signal: AbortSignal.timeout(30000),
+    const raw = await this.httpsRequest({
+      hostname: "vendas.cometasupermercados.com.br",
+      path: endpoint,
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Accept": "application/json",
+      },
     });
 
-    if (!response.ok) {
-      throw new Error(`Erro na API Cometa ${endpoint}: ${response.status}`);
+    try {
+      return JSON.parse(raw);
+    } catch {
+      throw new Error(`Resposta inválida da API Cometa ${endpoint}: ${raw.substring(0, 100)}`);
     }
-
-    return response.json();
   }
 
   /**
