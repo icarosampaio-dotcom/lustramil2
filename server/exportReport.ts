@@ -1269,14 +1269,17 @@ function parseVendaDate(dateStr: string): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-export function generateCometaVendasPDF(
+export async function generateCometaVendasPDF(
   items: VendaItemExport[],
   tipo: "diario" | "acumulado" | "por_produto",
   filtros: { loja?: string; dataInicio?: string; dataFim?: string }
-): Buffer {
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
   const doc = new PDFDocument({ size: "A4", margin: 0, bufferPages: true });
   const chunks: Buffer[] = [];
   doc.on("data", (c: Buffer) => chunks.push(c));
+  doc.on("end", () => resolve(Buffer.concat(chunks)));
+  doc.on("error", reject);
 
   const blue = "#1e3a8a";
   const lightBlue = "#eff6ff";
@@ -1446,7 +1449,7 @@ export function generateCometaVendasPDF(
   }
 
   doc.end();
-  return Buffer.concat(chunks);
+  }); // end Promise
 }
 
 export async function generateCometaVendasExcel(

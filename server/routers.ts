@@ -1783,7 +1783,7 @@ export const appRouter = router({
         });
       }
       const lojaLabel = input.filtroLoja ? vendas.find((v: any) => v.LOJA.LOJA === input.filtroLoja)?.LOJA.NOME : undefined;
-      const buffer = generateCometaVendasPDF(items, input.tipo, {
+      const buffer = await generateCometaVendasPDF(items, input.tipo, {
         loja: lojaLabel,
         dataInicio: input.filtroDataInicio,
         dataFim: input.filtroDataFim,
