@@ -1475,55 +1475,85 @@ export async function generateCometaVendasExcel(
 
   const fmtCurrency = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  // ── Aba Diária ──────────────────────────────────────────────────────────────
+  // ── Aba Diária — Matriz Produto × Data (datas nas colunas, produtos nas linhas) ──
   const sheetDiario = workbook.addWorksheet("Venda Diária");
-  sheetDiario.addRow([`RELATÓRIO DE VENDAS — DIÁRIO | LustraMil | ${new Date().toLocaleDateString("pt-BR")}`]);
-  sheetDiario.getRow(1).font = { bold: true, size: 12, color: { argb: "FF1E3A8A" } };
-  sheetDiario.addRow([]);
-  if (filtros.loja || filtros.dataInicio || filtros.dataFim) {
-    const f = [filtros.loja && `Loja: ${filtros.loja}`, filtros.dataInicio && `De: ${filtros.dataInicio}`, filtros.dataFim && `Até: ${filtros.dataFim}`].filter(Boolean).join(" | ");
-    sheetDiario.addRow([`Filtros: ${f}`]);
-    sheetDiario.getRow(3).font = { italic: true, color: { argb: "FF6B7280" } };
-    sheetDiario.addRow([]);
-  }
-
-  const byDate = new Map<string, { venda: number; custo: number; qtd: number }>();
-  items.forEach(i => {
-    const cur = byDate.get(i.data) || { venda: 0, custo: 0, qtd: 0 };
-    cur.venda += i.venda; cur.custo += i.custo; cur.qtd += i.qtd;
-    byDate.set(i.data, cur);
-  });
-  const sortedDates = Array.from(byDate.entries()).sort((a, b) => {
-    const da = parseVendaDate(a[0]), db = parseVendaDate(b[0]);
+  // Coletar datas ordenadas
+  const datasSetD = new Set<string>();
+  items.forEach(i => datasSetD.add(i.data));
+  const sortedDatasD = Array.from(datasSetD).sort((a, b) => {
+    const da = parseVendaDate(a), db = parseVendaDate(b);
     if (!da || !db) return 0;
     return da.getTime() - db.getTime();
   });
-
-  const hRowD = sheetDiario.addRow(["Data", "Venda (R$)", "Custo (R$)", "Margem (%)", "Qtd Unidades", "Venda Acumulada (R$)"]);
-  hRowD.eachCell(cell => Object.assign(cell, headerStyle));
-  hRowD.height = 20;
-
-  let accVenda = 0;
-  sortedDates.forEach(([data, d], idx) => {
-    accVenda += d.venda;
-    const mg = d.venda > 0 ? ((d.venda - d.custo) / d.venda * 100) : 0;
-    const row = sheetDiario.addRow([data, d.venda, d.custo, mg, d.qtd, accVenda]);
-    if (idx % 2 === 1) {
-      row.eachCell(cell => {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF9FAFB" } };
-      });
-    }
-    row.getCell(2).numFmt = '"R$"#,##0.00';
-    row.getCell(3).numFmt = '"R$"#,##0.00';
-    row.getCell(4).numFmt = '0.00"%"';
-    row.getCell(6).numFmt = '"R$"#,##0.00';
+  // Coletar produtos únicos e acumular vendas por produto/data
+  const byProdDataMap = new Map<string, { nome: string; cod: string; byData: Map<string, number> }>();
+  items.forEach(i => {
+    const key = i.cod_interno || i.ean || i.produto;
+    if (!byProdDataMap.has(key)) byProdDataMap.set(key, { nome: i.produto, cod: i.cod_interno, byData: new Map() });
+    const p = byProdDataMap.get(key)!;
+    p.byData.set(i.data, (p.byData.get(i.data) || 0) + i.venda);
   });
-
-  const totD = sheetDiario.addRow(["TOTAL", items.reduce((s, i) => s + i.venda, 0), items.reduce((s, i) => s + i.custo, 0), "", items.reduce((s, i) => s + i.qtd, 0), ""]);
-  totD.eachCell(cell => Object.assign(cell, totalStyle));
-  totD.getCell(2).numFmt = '"R$"#,##0.00';
-  totD.getCell(3).numFmt = '"R$"#,##0.00';
-  [14, 16, 16, 14, 16, 20].forEach((w, i) => { sheetDiario.getColumn(i + 1).width = w; });
+  const sortedProdsD = Array.from(byProdDataMap.entries()).sort((a, b) => a[1].nome.localeCompare(b[1].nome));
+  const nColsD = sortedDatasD.length + 3; // Produto + Cód + datas + TOTAL R$
+  // Título mesclado
+  sheetDiario.mergeCells(1, 1, 1, nColsD);
+  const tcD = sheetDiario.getCell(1, 1);
+  const filtroTextoD = [filtros.loja && `Loja: ${filtros.loja}`, filtros.dataInicio && `De: ${filtros.dataInicio}`, filtros.dataFim && `Até: ${filtros.dataFim}`].filter(Boolean).join(" | ");
+  tcD.value = `LUSTRA MIL — Venda Diária por Produto | ${new Date().toLocaleDateString("pt-BR")}${filtroTextoD ? " | " + filtroTextoD : ""}`;
+  tcD.style = { font: { bold: true, size: 13, color: { argb: "FF1E3A8A" } }, alignment: { horizontal: "center" } };
+  sheetDiario.getRow(1).height = 26;
+  // Cabeçalho: Produto | Cód | Data1 | Data2 | ... | TOTAL R$
+  const hRowD = sheetDiario.getRow(2);
+  hRowD.values = ["Produto", "Cód.", ...sortedDatasD, "TOTAL R$"];
+  hRowD.eachCell(cell => Object.assign(cell, headerStyle));
+  hRowD.height = 28;
+  // Linhas de produto
+  let totalGeralD = 0;
+  sortedProdsD.forEach(([, info], rowIdx) => {
+    const row = sheetDiario.getRow(rowIdx + 3);
+    const vals: (string | number)[] = [info.nome, info.cod || ""];
+    let totalLinha = 0;
+    sortedDatasD.forEach(d => {
+      const v = parseFloat((info.byData.get(d) || 0).toFixed(2));
+      totalLinha += v;
+      vals.push(v > 0 ? v : "");
+    });
+    totalGeralD += totalLinha;
+    vals.push(parseFloat(totalLinha.toFixed(2)));
+    row.values = vals;
+    const bg = rowIdx % 2 === 0 ? "FFF0F4FF" : "FFFFFFFF";
+    row.eachCell((cell, colNum) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } };
+      cell.border = { bottom: { style: "hair" }, right: { style: "hair" } };
+      if (colNum > 2 && typeof cell.value === "number" && cell.value > 0) {
+        cell.numFmt = '"R$"#,##0.00';
+        cell.alignment = { horizontal: "right" };
+        cell.font = { color: { argb: "FF1E40AF" } };
+      }
+    });
+    row.height = 18;
+  });
+  // Linha TOTAL DO DIA (soma de cada coluna de data)
+  const totRowD = sheetDiario.getRow(sortedProdsD.length + 3);
+  const totValsD: (string | number)[] = ["TOTAL DO DIA", ""];
+  sortedDatasD.forEach(d => {
+    const t = parseFloat(items.filter(i => i.data === d).reduce((s, i) => s + i.venda, 0).toFixed(2));
+    totValsD.push(t);
+  });
+  totValsD.push(parseFloat(totalGeralD.toFixed(2)));
+  totRowD.values = totValsD;
+  totRowD.eachCell((cell, colNum) => {
+    Object.assign(cell, totalStyle);
+    if (colNum > 2 && typeof cell.value === "number") cell.numFmt = '"R$"#,##0.00';
+  });
+  totRowD.height = 22;
+  // Larguras
+  sheetDiario.getColumn(1).width = 40;
+  sheetDiario.getColumn(2).width = 12;
+  sortedDatasD.forEach((_, idx) => { sheetDiario.getColumn(idx + 3).width = 13; });
+  sheetDiario.getColumn(sortedDatasD.length + 3).width = 14;
+  // Congelar painel: linha 2 e coluna B
+  sheetDiario.views = [{ state: "frozen", xSplit: 2, ySplit: 2, topLeftCell: "C3", activeCell: "C3" }];
 
   // ── Aba Por Produto ─────────────────────────────────────────────────────────
   const sheetProd = workbook.addWorksheet("Por Produto");
