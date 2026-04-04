@@ -116,7 +116,7 @@ class CometaSyncService {
   private cachedLojas: CometaLoja[] | null = null;
   private cachedProdutos: CometaProduto[] | null = null;
   private cacheTimestamp: Date | null = null;
-  private CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
+  private CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas (dados do Cometa mudam pouco durante o dia)
 
   /**
    * Faz uma requisição HTTP usando o módulo https nativo (suporta agente customizado)
@@ -210,9 +210,12 @@ class CometaSyncService {
     }
     try {
       const data = await this.fetchCometa("/pedido");
-      this.cachedPedidos = Array.isArray(data) ? data : [];
-      this.cacheTimestamp = new Date();
-      return this.cachedPedidos;
+      const arr = Array.isArray(data) ? data : [];
+      if (arr.length > 0) {
+        this.cachedPedidos = arr;
+        this.cacheTimestamp = new Date();
+      }
+      return this.cachedPedidos || arr;
     } catch (error) {
       console.error("Erro ao buscar pedidos do Cometa:", error);
       return this.cachedPedidos || [];
@@ -228,9 +231,12 @@ class CometaSyncService {
     }
     try {
       const data = await this.fetchCometa("/estoque");
-      this.cachedEstoque = Array.isArray(data) ? data : [];
-      this.cacheTimestamp = new Date();
-      return this.cachedEstoque;
+      const arr = Array.isArray(data) ? data : [];
+      if (arr.length > 0) {
+        this.cachedEstoque = arr;
+        this.cacheTimestamp = new Date();
+      }
+      return this.cachedEstoque || arr;
     } catch (error) {
       console.error("Erro ao buscar estoque do Cometa:", error);
       return this.cachedEstoque || [];
@@ -246,11 +252,16 @@ class CometaSyncService {
     }
     try {
       const data = await this.fetchCometa("/venda");
-      this.cachedVendas = Array.isArray(data) ? data : [];
-      this.cacheTimestamp = new Date();
-      return this.cachedVendas;
+      const arr = Array.isArray(data) ? data : [];
+      // Só atualiza o cache se recebeu dados válidos
+      if (arr.length > 0) {
+        this.cachedVendas = arr;
+        this.cacheTimestamp = new Date();
+      }
+      return this.cachedVendas || arr;
     } catch (error) {
       console.error("Erro ao buscar vendas do Cometa:", error);
+      // Retorna cache anterior mesmo expirado se disponível
       return this.cachedVendas || [];
     }
   }

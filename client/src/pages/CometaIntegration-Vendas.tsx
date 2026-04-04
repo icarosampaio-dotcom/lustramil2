@@ -134,7 +134,7 @@ export default function CometaVendas() {
       .slice(0, 15);
   }, [filteredItems]);
 
-  // Gráfico 2: Vendas diárias
+  // Gráfico 2: Vendas diárias (total por dia)
   const chartDiario = useMemo(() => {
     const map = new Map<string, number>();
     filteredItems.forEach(i => {
@@ -149,6 +149,34 @@ export default function CometaVendas() {
         return da.getTime() - db.getTime();
       });
   }, [filteredItems]);
+
+  // Gráfico 2b: Vendas diárias por produto (barras empilhadas)
+  const chartDiarioPorProduto = useMemo(() => {
+    // Coletar datas e produtos únicos
+    const datas = Array.from(new Set(filteredItems.map(i => i.data))).sort((a, b) => {
+      const da = parseDate(a), db = parseDate(b);
+      if (!da || !db) return 0;
+      return da.getTime() - db.getTime();
+    });
+    const produtos = Array.from(new Set(filteredItems.map(i => i.produto))).slice(0, 10);
+    // Montar tabela cruzada: { data, [produto]: valor }
+    return datas.map(data => {
+      const row: Record<string, any> = { data };
+      produtos.forEach(p => {
+        row[p] = parseFloat(
+          filteredItems
+            .filter(i => i.data === data && i.produto === p)
+            .reduce((s, i) => s + i.venda, 0)
+            .toFixed(2)
+        );
+      });
+      return row;
+    });
+  }, [filteredItems]);
+
+  const produtosUnicos = useMemo(() =>
+    Array.from(new Set(filteredItems.map(i => i.produto))).slice(0, 10),
+  [filteredItems]);
 
   // Gráfico 3: Vendas acumuladas
   const chartAcumulado = useMemo(() => {
@@ -188,15 +216,18 @@ export default function CometaVendas() {
       });
       const data = await res.json();
       const result = data?.result?.data?.json;
-      if (!result?.base64) throw new Error("Sem dados");
+      if (!result?.base64 || result.base64.length === 0) {
+        toast.error("Sem dados para gerar PDF. Clique em Atualizar para recarregar os dados do Cometa.");
+        return;
+      }
       const bytes = Uint8Array.from(atob(result.base64), c => c.charCodeAt(0));
       const blob = new Blob([bytes], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = result.filename; a.click();
       URL.revokeObjectURL(url);
       toast.success("PDF gerado com sucesso!");
-    } catch {
-      toast.error("Erro ao gerar PDF.");
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao gerar PDF. Tente atualizar os dados primeiro.");
     } finally {
       setIsExporting(false);
     }
@@ -485,36 +516,71 @@ export default function CometaVendas() {
             </Card>
           )}
 
-          {tipoGrafico === "diario" && chartDiario.length > 0 && (
+          {tipoGrafico === "diario" && chartDiarioPorProduto.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <BarChart2 className="h-5 w-5 text-blue-600" /> Venda Diária (R$)
+                  <BarChart2 className="h-5 w-5 text-blue-600" /> Venda Diária por Produto (R$)
                 </CardTitle>
-                <CardDescription>Volume de vendas por dia no período selecionado</CardDescription>
+                <CardDescription>Vendas de cada produto por dia — {produtosUnicos.length} produtos, {chartDiarioPorProduto.length} dias</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={280}>
+                <ResponsiveContainer width="100%" height={320}>
                   <BarChart
-                    data={chartDiario}
-                    margin={{ top: 5, right: 20, left: 10, bottom: chartDiario.length > 10 ? 60 : 20 }}
+                    data={chartDiarioPorProduto}
+                    margin={{ top: 5, right: 20, left: 10, bottom: 60 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="data"
-                      tick={{ fontSize: 11 }}
-                      angle={chartDiario.length > 10 ? -40 : 0}
-                      textAnchor={chartDiario.length > 10 ? "end" : "middle"}
-                      interval={chartDiario.length > 20 ? Math.floor(chartDiario.length / 15) : 0}
-                    />
-                    <YAxis tickFormatter={v => `R$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
+                    <XAxis dataKey="data" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
+                    <YAxis tickFormatter={v => `R$${v.toFixed(0)}`} tick={{ fontSize: 11 }} />
                     <Tooltip
-                      formatter={(value: any) => [fmt(Number(value)), "Vendas"]}
-                      contentStyle={{ fontSize: 12 }}
+                      formatter={(value: any, name: string) => [fmt(Number(value)), name]}
+                      contentStyle={{ fontSize: 11 }}
                     />
-                    <Bar dataKey="valor" name="Vendas (R$)" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                    <Legend wrapperStyle={{ fontSize: 10, paddingTop: 8 }} />
+                    {produtosUnicos.map((p, idx) => (
+                      <Bar key={p} dataKey={p} stackId="a" fill={COLORS[idx % COLORS.length]} maxBarSize={60} />
+                    ))}
                   </BarChart>
                 </ResponsiveContainer>
+                {/* Tabela resumo por produto/dia */}
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-blue-50">
+                        <th className="border px-2 py-1 text-left font-semibold">Produto</th>
+                        {chartDiarioPorProduto.map(d => (
+                          <th key={d.data} className="border px-2 py-1 text-center font-semibold">{d.data}</th>
+                        ))}
+                        <th className="border px-2 py-1 text-center font-semibold bg-blue-100">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {produtosUnicos.map((p, idx) => {
+                        const total = chartDiarioPorProduto.reduce((s, d) => s + (d[p] || 0), 0);
+                        return (
+                          <tr key={p} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                            <td className="border px-2 py-1 font-medium max-w-[160px] truncate" title={p}>{p}</td>
+                            {chartDiarioPorProduto.map(d => (
+                              <td key={d.data} className="border px-2 py-1 text-right">
+                                {d[p] > 0 ? fmt(d[p]) : <span className="text-gray-300">—</span>}
+                              </td>
+                            ))}
+                            <td className="border px-2 py-1 text-right font-bold bg-blue-50">{fmt(total)}</td>
+                          </tr>
+                        );
+                      })}
+                      <tr className="bg-blue-100 font-bold">
+                        <td className="border px-2 py-1">TOTAL DO DIA</td>
+                        {chartDiarioPorProduto.map(d => {
+                          const tot = produtosUnicos.reduce((s, p) => s + (d[p] || 0), 0);
+                          return <td key={d.data} className="border px-2 py-1 text-right">{fmt(tot)}</td>;
+                        })}
+                        <td className="border px-2 py-1 text-right">{fmt(filteredItems.reduce((s,i)=>s+i.venda,0))}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </CardContent>
             </Card>
           )}
