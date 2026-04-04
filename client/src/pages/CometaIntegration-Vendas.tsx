@@ -65,7 +65,7 @@ export default function CometaVendas() {
   const [dataFim, setDataFim] = useState("");
   const [tipoGrafico, setTipoGrafico] = useState<"por_loja" | "diario" | "acumulado">("por_loja");
   const [showRelatorio, setShowRelatorio] = useState(false);
-  const [tipoRelatorio, setTipoRelatorio] = useState<"diario" | "acumulado" | "por_produto">("diario");
+  const [tipoRelatorio, setTipoRelatorio] = useState<"diario" | "acumulado" | "por_produto" | "matriz">("diario");
   const [isExporting, setIsExporting] = useState(false);
 
   const { data: vendas = [], isLoading, refetch, isFetching } = trpc.cometa.vendas.useQuery(undefined, {
@@ -198,7 +198,73 @@ export default function CometaVendas() {
   if (search) activeFilters.push({ label: `Busca: "${search}"`, onRemove: () => setSearch("") });
 
   // ─── Exportação ─────────────────────────────────────────────────────────────
+  const handleExportMatrizPDF = async () => {
+    setIsExporting(true);
+    try {
+      const res = await fetch("/api/trpc/cometa.exportVendasMatrizPDF", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          json: {
+            filtroLoja: lojaFilter !== "todas" ? lojaFilter : undefined,
+            filtroDataInicio: dataInicio || undefined,
+            filtroDataFim: dataFim || undefined,
+          }
+        }),
+      });
+      const data = await res.json();
+      const result = data?.result?.data?.json;
+      if (!result?.base64 || result.base64.length === 0) {
+        toast.error("Sem dados para gerar PDF. Clique em Atualizar para recarregar os dados do Cometa.");
+        return;
+      }
+      const bytes = Uint8Array.from(atob(result.base64), c => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = result.filename; a.click();
+      URL.revokeObjectURL(url);
+      toast.success("PDF Matriz gerado com sucesso!");
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao gerar PDF Matriz.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportMatrizExcel = async () => {
+    setIsExporting(true);
+    try {
+      const res = await fetch("/api/trpc/cometa.exportVendasMatrizExcel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          json: {
+            filtroLoja: lojaFilter !== "todas" ? lojaFilter : undefined,
+            filtroDataInicio: dataInicio || undefined,
+            filtroDataFim: dataFim || undefined,
+          }
+        }),
+      });
+      const data = await res.json();
+      const result = data?.result?.data?.json;
+      if (!result?.base64) throw new Error("Sem dados");
+      const bytes = Uint8Array.from(atob(result.base64), c => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: result.mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = result.filename; a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Excel Matriz gerado com sucesso!");
+    } catch {
+      toast.error("Erro ao gerar Excel Matriz.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handleExportPDF = async () => {
+    if (tipoRelatorio === "matriz") { handleExportMatrizPDF(); return; }
     setIsExporting(true);
     try {
       const res = await fetch("/api/trpc/cometa.exportVendasPDF", {
@@ -234,6 +300,7 @@ export default function CometaVendas() {
   };
 
   const handleExportExcel = async () => {
+    if (tipoRelatorio === "matriz") { handleExportMatrizExcel(); return; }
     setIsExporting(true);
     try {
       const res = await fetch("/api/trpc/cometa.exportVendasExcel", {
@@ -309,6 +376,7 @@ export default function CometaVendas() {
                     <SelectItem value="diario">📅 Venda Diária (por dia)</SelectItem>
                     <SelectItem value="acumulado">📈 Venda Acumulada (cumulativo)</SelectItem>
                     <SelectItem value="por_produto">📦 Por Produto (ranking)</SelectItem>
+                    <SelectItem value="matriz">📊 Matriz Produto × Dia (planilha cruzada)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

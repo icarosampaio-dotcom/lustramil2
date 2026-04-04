@@ -10,7 +10,7 @@ import { nanoid } from "nanoid";
 import * as db from "./db";
 import { logAudit, isAllowedFileType, isAllowedFileSize, sanitizeString } from "./security";
 import { parseNFeXml, getEntityFromNFe } from "./nfeParser";
-import { generateExcel, generatePDF, generatePayableExcel, generateReceivableExcel, generateCashExcel, generateEntityGroupExcel, generateMaterialGroupExcel, generateRankingExcel, generateCometaPedidosPDF, generateCometaPedidosExcel, generateCometaVendasPDF, generateCometaVendasExcel, type CometaPedidoRelatorio } from "./exportReport";
+import { generateExcel, generatePDF, generatePayableExcel, generateReceivableExcel, generateCashExcel, generateEntityGroupExcel, generateMaterialGroupExcel, generateRankingExcel, generateCometaPedidosPDF, generateCometaPedidosExcel, generateCometaVendasPDF, generateCometaVendasExcel, generateCometaVendasMatrizPDF, generateCometaVendasMatrizExcel, type CometaPedidoRelatorio, type VendaItemFlat } from "./exportReport";
 import { cometaSyncService } from "./cometa-sync-service";
 
 // Helper to get IP from context
@@ -1844,6 +1844,70 @@ export const appRouter = router({
         filename: `vendas-cometa-${tipoLabel}-${new Date().toISOString().split("T")[0]}.xlsx`,
         mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       };
+    }),
+
+    exportVendasMatrizPDF: protectedProcedure.input(z.object({
+      filtroLoja: z.string().optional(),
+      filtroDataInicio: z.string().optional(),
+      filtroDataFim: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const vendas = await cometaSyncService.getVendas();
+      const items: VendaItemFlat[] = [];
+      vendas.forEach((v: any) => {
+        const lojaId = v.LOJA?.LOJA || v.LOJA || "";
+        if (input.filtroLoja && lojaId !== input.filtroLoja) return;
+        (v.VENDAS || []).forEach((vi: any) => {
+          const data = new Date(vi.DATA_EMISSAO || vi.DATA || "");
+          if (isNaN(data.getTime())) return;
+          if (input.filtroDataInicio && data < new Date(input.filtroDataInicio + "T00:00:00")) return;
+          if (input.filtroDataFim && data > new Date(input.filtroDataFim + "T23:59:59")) return;
+          items.push({
+            data: data.toLocaleDateString("pt-BR"),
+            produto: vi.PRODUTO || vi.DESCRICAO || "",
+            cod_interno: vi.COD_INTERNO || vi.CODIGO || "",
+            ean: vi.EAN || "",
+            qtd: parseFloat(vi.QUANTIDADE || vi.QTD || "0"),
+            venda: parseFloat(vi.VALOR_TOTAL || vi.VENDA || "0"),
+            nome_loja: v.LOJA?.NOME || v.NOME_LOJA || lojaId,
+          });
+        });
+      });
+      const lojaLabel = input.filtroLoja ? `Loja: ${input.filtroLoja}` : "Todas as lojas";
+      const filtrosStr = [lojaLabel, input.filtroDataInicio ? `De: ${input.filtroDataInicio}` : "", input.filtroDataFim ? `At\u00e9: ${input.filtroDataFim}` : ""].filter(Boolean).join(" | ");
+      const buffer = await generateCometaVendasMatrizPDF(items, filtrosStr);
+      return { base64: buffer.toString("base64"), filename: `vendas-matriz-${new Date().toISOString().split("T")[0]}.pdf`, mimeType: "application/pdf" };
+    }),
+
+    exportVendasMatrizExcel: protectedProcedure.input(z.object({
+      filtroLoja: z.string().optional(),
+      filtroDataInicio: z.string().optional(),
+      filtroDataFim: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const vendas = await cometaSyncService.getVendas();
+      const items: VendaItemFlat[] = [];
+      vendas.forEach((v: any) => {
+        const lojaId = v.LOJA?.LOJA || v.LOJA || "";
+        if (input.filtroLoja && lojaId !== input.filtroLoja) return;
+        (v.VENDAS || []).forEach((vi: any) => {
+          const data = new Date(vi.DATA_EMISSAO || vi.DATA || "");
+          if (isNaN(data.getTime())) return;
+          if (input.filtroDataInicio && data < new Date(input.filtroDataInicio + "T00:00:00")) return;
+          if (input.filtroDataFim && data > new Date(input.filtroDataFim + "T23:59:59")) return;
+          items.push({
+            data: data.toLocaleDateString("pt-BR"),
+            produto: vi.PRODUTO || vi.DESCRICAO || "",
+            cod_interno: vi.COD_INTERNO || vi.CODIGO || "",
+            ean: vi.EAN || "",
+            qtd: parseFloat(vi.QUANTIDADE || vi.QTD || "0"),
+            venda: parseFloat(vi.VALOR_TOTAL || vi.VENDA || "0"),
+            nome_loja: v.LOJA?.NOME || v.NOME_LOJA || lojaId,
+          });
+        });
+      });
+      const lojaLabel = input.filtroLoja ? `Loja: ${input.filtroLoja}` : "Todas as lojas";
+      const filtrosStr = [lojaLabel, input.filtroDataInicio ? `De: ${input.filtroDataInicio}` : "", input.filtroDataFim ? `At\u00e9: ${input.filtroDataFim}` : ""].filter(Boolean).join(" | ");
+      const buffer = await generateCometaVendasMatrizExcel(items, filtrosStr);
+      return { base64: buffer.toString("base64"), filename: `vendas-matriz-${new Date().toISOString().split("T")[0]}.xlsx`, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
     }),
   }),
 });
