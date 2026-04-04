@@ -270,12 +270,18 @@ function DashboardLayoutContent({
 }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
-  const { state, toggleSidebar } = useSidebar();
+  const { state, toggleSidebar, setOpenMobile } = useSidebar();
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const activeMenuItem = menuItems.find((item) => item.path === location);
   const isMobile = useIsMobile();
+
+  // Fechar menu mobile ao navegar
+  const navigate = (path: string) => {
+    setLocation(path);
+    if (isMobile) setOpenMobile(false);
+  };
 
   useEffect(() => {
     if (isCollapsed) {
@@ -353,7 +359,7 @@ function DashboardLayoutContent({
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton
                       isActive={isActive}
-                      onClick={() => setLocation(item.path)}
+                      onClick={() => navigate(item.path)}
                       tooltip={item.label}
                       className={`h-10 transition-all font-normal`}
                     >
@@ -367,9 +373,9 @@ function DashboardLayoutContent({
               })}
             </SidebarMenu>
             {user?.role === "admin" && (
-              <div className="px-2 pt-3 pb-1">
-                <div className="border-t border-sidebar-border mb-2" />
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40 px-2 mb-1 group-data-[collapsible=icon]:hidden">
+              <div className="px-2 pt-4 pb-1">
+                <div className="border-t border-sidebar-border mb-3" />
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40 px-2 mb-2 group-data-[collapsible=icon]:hidden">
                   Administração
                 </p>
                 <SidebarMenu>
@@ -379,7 +385,7 @@ function DashboardLayoutContent({
                       <SidebarMenuItem key={item.path}>
                         <SidebarMenuButton
                           isActive={isActive}
-                          onClick={() => setLocation(item.path)}
+                          onClick={() => navigate(item.path)}
                           tooltip={item.label}
                           className={`h-10 transition-all font-normal`}
                         >
@@ -446,17 +452,33 @@ function DashboardLayoutContent({
 
       <SidebarInset>
         {isMobile && (
-          <div className="flex border-b h-14 items-center justify-between bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
+          <div className="flex border-b h-14 items-center justify-between bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40 shadow-sm">
             <div className="flex items-center gap-2">
-              <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col gap-1">
-                  <span className="tracking-tight text-foreground font-semibold">
-                    {activeMenuItem?.label ?? "Menu"}
-                  </span>
-                </div>
+              <SidebarTrigger className="h-9 w-9 rounded-lg" />
+              <div className="flex items-center gap-2">
+                <img src={LOGO_URL} alt="Lustra Mil" className="h-7 w-7 rounded-md object-cover" />
+                <span className="tracking-tight text-foreground font-semibold text-sm">
+                  {activeMenuItem?.label ?? "Lustra Mil"}
+                </span>
               </div>
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center justify-center h-8 w-8 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                  {user?.name?.charAt(0).toUpperCase() || "U"}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={() => { navigate("/alterar-senha"); }} className="cursor-pointer">
+                  <KeyRound className="mr-2 h-4 w-4" />
+                  <span>Alterar Senha</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Sair</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         )}
         <main className="flex-1 p-4 md:p-6">
