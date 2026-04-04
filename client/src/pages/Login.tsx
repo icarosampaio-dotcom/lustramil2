@@ -129,14 +129,7 @@ export default function Login() {
               </Button>
             </form>
 
-            <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
-              <p className="text-xs text-blue-700 dark:text-blue-300 text-center font-medium">
-                🔐 Credenciais padrão: <strong>admin</strong> / <strong>admin123</strong>
-              </p>
-              <p className="text-xs text-blue-600 dark:text-blue-400 text-center mt-1">
-                Altere sua senha após o primeiro acesso
-              </p>
-            </div>
+
           </CardContent>
         </Card>
 
