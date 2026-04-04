@@ -1583,3 +1583,295 @@ export async function generateCometaVendasExcel(
   const buf = await workbook.xlsx.writeBuffer();
   return Buffer.from(buf);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RELATÓRIO MATRIZ CRUZADA: Produtos (linhas) × Dias (colunas)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface VendaItemFlat {
+  data: string;
+  produto: string;
+  cod_interno: string;
+  ean: string;
+  qtd: number;
+  venda: number;
+  nome_loja: string;
+}
+
+function sortDatas(datas: string[]): string[] {
+  return datas.sort((a, b) => {
+    const [da, ma, ya] = a.split("/").map(Number);
+    const [db, mb, yb] = b.split("/").map(Number);
+    return new Date(ya, ma - 1, da).getTime() - new Date(yb, mb - 1, db).getTime();
+  });
+}
+
+export async function generateCometaVendasMatrizPDF(
+  items: VendaItemFlat[],
+  filtrosAplicados: string = "",
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const doc = new PDFDocument({ margin: 30, size: "A4", layout: "landscape" });
+    doc.on("data", (c: Buffer) => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    const W = doc.page.width;
+    const MARGIN = 30;
+    const usableW = W - MARGIN * 2;
+
+    doc.rect(0, 0, W, 60).fill("#1e40af");
+    doc.fillColor("white").fontSize(15).font("Helvetica-Bold")
+      .text("LUSTRA MIL — Matriz de Vendas por Produto/Dia", MARGIN, 14, { width: usableW });
+    doc.fontSize(9).font("Helvetica")
+      .text(`Gerado em: ${new Date().toLocaleString("pt-BR")}${filtrosAplicados ? "   |   " + filtrosAplicados : ""}`, MARGIN, 38, { width: usableW });
+    doc.fillColor("black");
+
+    let y = 72;
+
+    if (items.length === 0) {
+      doc.fontSize(12).text("Nenhum dado encontrado para os filtros selecionados.", MARGIN, y);
+      doc.end();
+      return;
+    }
+
+    const datasSet = new Set<string>();
+    items.forEach(i => datasSet.add(i.data));
+    const datas = sortDatas(Array.from(datasSet));
+
+    const produtosMap = new Map<string, string>();
+    items.forEach(i => produtosMap.set(i.cod_interno || i.ean, i.produto));
+    const produtos = Array.from(produtosMap.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+
+    const matrizQtd = new Map<string, number>();
+    const matrizVenda = new Map<string, number>();
+    items.forEach(i => {
+      const key = `${i.cod_interno || i.ean}|${i.data}`;
+      matrizQtd.set(key, (matrizQtd.get(key) || 0) + i.qtd);
+      matrizVenda.set(key, (matrizVenda.get(key) || 0) + i.venda);
+    });
+
+    const COL_PRODUTO = 155;
+    const COL_TOTAL = 58;
+    const nDias = datas.length;
+    const colDia = Math.max(36, Math.floor((usableW - COL_PRODUTO - COL_TOTAL) / Math.max(nDias, 1)));
+    const ROW_H = 17;
+    const HEADER_H = 22;
+
+    const checkPage = (neededH: number) => {
+      if (y + neededH > doc.page.height - 40) {
+        doc.addPage({ margin: 30, size: "A4", layout: "landscape" });
+        y = 30;
+        // Repetir cabeçalho da tabela na nova página
+        doc.rect(MARGIN, y, usableW, HEADER_H).fill("#1e3a8a");
+        doc.fillColor("white").fontSize(7).font("Helvetica-Bold");
+        doc.text("PRODUTO", MARGIN + 3, y + 7, { width: COL_PRODUTO - 6 });
+        datas.forEach((d, idx) => {
+          const x = MARGIN + COL_PRODUTO + idx * colDia;
+          doc.text(d.substring(0, 5), x + 2, y + 7, { width: colDia - 4, align: "center" });
+        });
+        const xT = MARGIN + COL_PRODUTO + nDias * colDia;
+        doc.text("TOTAL R$", xT + 2, y + 7, { width: COL_TOTAL - 4, align: "center" });
+        doc.fillColor("black");
+        y += HEADER_H;
+      }
+    };
+
+    // Cabeçalho da tabela
+    doc.rect(MARGIN, y, usableW, HEADER_H).fill("#1e3a8a");
+    doc.fillColor("white").fontSize(7).font("Helvetica-Bold");
+    doc.text("PRODUTO", MARGIN + 3, y + 7, { width: COL_PRODUTO - 6 });
+    datas.forEach((d, idx) => {
+      const x = MARGIN + COL_PRODUTO + idx * colDia;
+      doc.text(d.substring(0, 5), x + 2, y + 7, { width: colDia - 4, align: "center" });
+    });
+    const xTotal = MARGIN + COL_PRODUTO + nDias * colDia;
+    doc.text("TOTAL R$", xTotal + 2, y + 7, { width: COL_TOTAL - 4, align: "center" });
+    doc.fillColor("black");
+    y += HEADER_H;
+
+    let totalGeral = 0;
+    produtos.forEach(([cod, nome], rowIdx) => {
+      checkPage(ROW_H);
+      const bg = rowIdx % 2 === 0 ? "#f0f4ff" : "#ffffff";
+      doc.rect(MARGIN, y, usableW, ROW_H).fill(bg).stroke("#e2e8f0");
+
+      doc.fillColor("#1e293b").fontSize(6.5).font("Helvetica");
+      const nomeExibido = nome.length > 26 ? nome.substring(0, 25) + "…" : nome;
+      doc.text(nomeExibido, MARGIN + 3, y + 5, { width: COL_PRODUTO - 6 });
+
+      let totalProd = 0;
+      datas.forEach((d, idx) => {
+        const x = MARGIN + COL_PRODUTO + idx * colDia;
+        const qtd = matrizQtd.get(`${cod}|${d}`) || 0;
+        const venda = matrizVenda.get(`${cod}|${d}`) || 0;
+        totalProd += venda;
+        if (qtd > 0) {
+          doc.fillColor("#1e40af").font("Helvetica-Bold").fontSize(6.5);
+          doc.text(`${qtd}un`, x + 2, y + 2, { width: colDia - 4, align: "center" });
+          doc.fillColor("#166534").fontSize(5.5);
+          doc.text(`R$${venda.toFixed(0)}`, x + 2, y + 9, { width: colDia - 4, align: "center" });
+          doc.fillColor("#1e293b").fontSize(6.5).font("Helvetica");
+        } else {
+          doc.fillColor("#cbd5e1").text("—", x + 2, y + 5, { width: colDia - 4, align: "center" });
+          doc.fillColor("#1e293b");
+        }
+      });
+      totalGeral += totalProd;
+
+      doc.fillColor("#1e40af").font("Helvetica-Bold").fontSize(6.5);
+      doc.text(`R$${totalProd.toFixed(2)}`, xTotal + 2, y + 5, { width: COL_TOTAL - 4, align: "center" });
+      doc.fillColor("#1e293b").font("Helvetica");
+      y += ROW_H;
+    });
+
+    // Linha de totais por dia
+    checkPage(ROW_H + 12);
+    doc.rect(MARGIN, y, usableW, ROW_H).fill("#1e3a8a");
+    doc.fillColor("white").fontSize(7).font("Helvetica-Bold");
+    doc.text("TOTAL POR DIA", MARGIN + 3, y + 5, { width: COL_PRODUTO - 6 });
+    datas.forEach((d, idx) => {
+      const x = MARGIN + COL_PRODUTO + idx * colDia;
+      const tot = items.filter(i => i.data === d).reduce((s, i) => s + i.venda, 0);
+      doc.text(`R$${tot.toFixed(0)}`, x + 2, y + 5, { width: colDia - 4, align: "center" });
+    });
+    doc.text(`R$${totalGeral.toFixed(2)}`, xTotal + 2, y + 5, { width: COL_TOTAL - 4, align: "center" });
+    doc.fillColor("black");
+    y += ROW_H + 8;
+
+    doc.fontSize(8).fillColor("#64748b")
+      .text(`Produtos: ${produtos.length}   |   Dias: ${datas.length}   |   Valor total: R$${totalGeral.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, MARGIN, y);
+
+    doc.end();
+  });
+}
+
+export async function generateCometaVendasMatrizExcel(
+  items: VendaItemFlat[],
+  filtrosAplicados: string = "",
+): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "LustraMil";
+  workbook.created = new Date();
+
+  const datasSet = new Set<string>();
+  items.forEach(i => datasSet.add(i.data));
+  const datas = sortDatas(Array.from(datasSet));
+
+  const produtosMap = new Map<string, { nome: string; cod: string; ean: string }>();
+  items.forEach(i => {
+    const key = i.cod_interno || i.ean;
+    if (!produtosMap.has(key)) produtosMap.set(key, { nome: i.produto, cod: i.cod_interno, ean: i.ean });
+  });
+  const produtos = Array.from(produtosMap.entries()).sort((a, b) => a[1].nome.localeCompare(b[1].nome));
+
+  const matrizQtd = new Map<string, number>();
+  const matrizVenda = new Map<string, number>();
+  items.forEach(i => {
+    const key = `${i.cod_interno || i.ean}|${i.data}`;
+    matrizQtd.set(key, (matrizQtd.get(key) || 0) + i.qtd);
+    matrizVenda.set(key, (matrizVenda.get(key) || 0) + i.venda);
+  });
+
+  const hStyleBlue: Partial<ExcelJS.Style> = {
+    font: { bold: true, color: { argb: "FFFFFFFF" }, size: 10 },
+    fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E3A8A" } },
+    alignment: { horizontal: "center", vertical: "middle", wrapText: true },
+    border: { bottom: { style: "thin" }, right: { style: "thin" } },
+  };
+  const hStyleGreen: Partial<ExcelJS.Style> = {
+    font: { bold: true, color: { argb: "FFFFFFFF" }, size: 10 },
+    fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF166534" } },
+    alignment: { horizontal: "center", vertical: "middle", wrapText: true },
+    border: { bottom: { style: "thin" }, right: { style: "thin" } },
+  };
+  const totStyle: Partial<ExcelJS.Style> = {
+    font: { bold: true, color: { argb: "FFFFFFFF" }, size: 10 },
+    fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E40AF" } },
+    alignment: { horizontal: "center", vertical: "middle" },
+  };
+
+  const addMatrizSheet = (
+    name: string,
+    hStyle: Partial<ExcelJS.Style>,
+    titleColor: string,
+    tipo: "qtd" | "valor",
+  ) => {
+    const sheet = workbook.addWorksheet(name);
+    const nCols = datas.length + 3;
+
+    // Título
+    sheet.mergeCells(1, 1, 1, nCols);
+    const tc = sheet.getCell(1, 1);
+    tc.value = `LUSTRA MIL — Matriz de Vendas por Produto/Dia (${tipo === "qtd" ? "Qtd" : "R$"})${filtrosAplicados ? " — " + filtrosAplicados : ""}`;
+    tc.style = { font: { bold: true, size: 13, color: { argb: titleColor } }, alignment: { horizontal: "center" } };
+    sheet.getRow(1).height = 26;
+
+    // Cabeçalho
+    const hRow = sheet.getRow(2);
+    hRow.values = ["Cód.", "Produto", ...datas.map(d => d.substring(0, 5)), tipo === "qtd" ? "TOTAL Qtd" : "TOTAL R$"];
+    hRow.eachCell(cell => Object.assign(cell, hStyle));
+    hRow.height = 28;
+
+    let totalGeral = 0;
+    produtos.forEach(([cod, info], rowIdx) => {
+      const row = sheet.getRow(rowIdx + 3);
+      const vals: (string | number)[] = [info.cod || cod, info.nome];
+      let totalLinha = 0;
+      datas.forEach(d => {
+        const v = tipo === "qtd"
+          ? (matrizQtd.get(`${cod}|${d}`) || 0)
+          : (matrizVenda.get(`${cod}|${d}`) || 0);
+        totalLinha += v;
+        vals.push(v > 0 ? v : "");
+      });
+      totalGeral += totalLinha;
+      vals.push(totalLinha > 0 ? totalLinha : 0);
+      row.values = vals;
+
+      const bg = rowIdx % 2 === 0 ? (tipo === "qtd" ? "FFF0F4FF" : "FFF0FFF4") : "FFFFFFFF";
+      row.eachCell((cell, colNum) => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } };
+        cell.border = { bottom: { style: "hair" }, right: { style: "hair" } };
+        if (colNum > 2 && typeof cell.value === "number" && cell.value > 0) {
+          cell.alignment = { horizontal: "center" };
+          cell.font = { bold: true, color: { argb: tipo === "qtd" ? "FF1E40AF" : "FF166534" } };
+          if (tipo === "valor") cell.numFmt = '"R$"#,##0.00';
+        }
+      });
+      row.height = 18;
+    });
+
+    // Linha de totais por dia
+    const totRow = sheet.getRow(produtos.length + 3);
+    const totVals: (string | number)[] = ["", "TOTAL POR DIA"];
+    datas.forEach(d => {
+      const t = tipo === "qtd"
+        ? items.filter(i => i.data === d).reduce((s, i) => s + i.qtd, 0)
+        : items.filter(i => i.data === d).reduce((s, i) => s + i.venda, 0);
+      totVals.push(t);
+    });
+    totVals.push(totalGeral);
+    totRow.values = totVals;
+    totRow.eachCell((cell, colNum) => {
+      Object.assign(cell, totStyle);
+      if (colNum > 2 && tipo === "valor" && typeof cell.value === "number") cell.numFmt = '"R$"#,##0.00';
+    });
+    totRow.height = 22;
+
+    sheet.getColumn(1).width = 10;
+    sheet.getColumn(2).width = 40;
+    datas.forEach((_, idx) => { sheet.getColumn(idx + 3).width = tipo === "qtd" ? 9 : 12; });
+    sheet.getColumn(datas.length + 3).width = 14;
+
+    // Congelar painel: linha 2 e coluna B
+    sheet.views = [{ state: "frozen", xSplit: 2, ySplit: 2, topLeftCell: "C3", activeCell: "C3" }];
+  };
+
+  addMatrizSheet("Matriz Qtd Vendida", hStyleBlue, "FF1E3A8A", "qtd");
+  addMatrizSheet("Matriz Valor R$", hStyleGreen, "FF166534", "valor");
+
+  const buf = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
