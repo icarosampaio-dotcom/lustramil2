@@ -238,12 +238,12 @@ export default function CometaPedidos() {
   return (
     <div className="space-y-5">
       {/* ─── Cabeçalho ──────────────────────────────────────────────────────── */}
-      <div className="flex justify-between items-start">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Pedidos Cometa</h1>
-          <p className="text-muted-foreground">Pedidos reais do Cometa Supermercados • {orders.length} pedidos carregados</p>
+          <h1 className="text-2xl sm:text-3xl font-bold">Pedidos Cometa</h1>
+          <p className="text-muted-foreground text-sm">Pedidos reais do Cometa Supermercados • {orders.length} pedidos carregados</p>
         </div>
-        <div className="flex gap-2 flex-wrap justify-end">
+        <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="sm" onClick={() => forceSyncMutation.mutate()} disabled={forceSyncMutation.isPending || isFetching}>
             {(forceSyncMutation.isPending || isFetching) ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
             Atualizar
@@ -259,7 +259,7 @@ export default function CometaPedidos() {
             className="bg-blue-600 hover:bg-blue-700 text-white"
           >
             <Printer className="h-4 w-4 mr-1" />
-            Gerar Relatório {filteredOrders.length < orders.length && `(${filteredOrders.length})`}
+            Relatório {filteredOrders.length < orders.length && `(${filteredOrders.length})`}
           </Button>
         </div>
       </div>

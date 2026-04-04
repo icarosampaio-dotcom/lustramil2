@@ -76,11 +76,11 @@ export default function CometaConfiguracao() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <img src={COMETA_LOGO} alt="Cometa Supermercados" className="h-14 w-auto object-contain" />
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <img src={COMETA_LOGO} alt="Cometa Supermercados" className="h-12 sm:h-14 w-auto object-contain" />
         <div>
-          <h1 className="text-3xl font-bold">Integração Cometa Supermercados</h1>
-          <p className="text-muted-foreground">Configure suas credenciais para sincronizar dados</p>
+          <h1 className="text-2xl sm:text-3xl font-bold">Integração Cometa Supermercados</h1>
+          <p className="text-muted-foreground text-sm">Configure suas credenciais para sincronizar dados</p>
         </div>
       </div>
 

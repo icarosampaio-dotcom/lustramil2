@@ -80,13 +80,13 @@ export default function CometaEstoque() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Estoque Cometa</h1>
-          <p className="text-muted-foreground">Estoque real dos produtos nas lojas do Cometa</p>
+          <h1 className="text-2xl sm:text-3xl font-bold">Estoque Cometa</h1>
+          <p className="text-muted-foreground text-sm">Estoque real dos produtos nas lojas do Cometa</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => forceSyncMutation.mutate()} disabled={forceSyncMutation.isPending || isFetching}>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={() => forceSyncMutation.mutate()} disabled={forceSyncMutation.isPending || isFetching}>
             {(forceSyncMutation.isPending || isFetching) ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             ) : (
@@ -94,14 +94,14 @@ export default function CometaEstoque() {
             )}
             Atualizar
           </Button>
-          <Button onClick={handleExport}>
+          <Button size="sm" onClick={handleExport}>
             <Download className="h-4 w-4 mr-2" />
             Exportar
           </Button>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total de Itens</CardTitle></CardHeader>
           <CardContent>
@@ -142,32 +142,36 @@ export default function CometaEstoque() {
 
       <Card>
         <CardHeader><CardTitle>Filtros</CardTitle></CardHeader>
-        <CardContent className="flex gap-4 flex-wrap">
-          <div className="flex-1 min-w-48">
+        <CardContent className="space-y-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1">
             <Input
               placeholder="Buscar por produto, codigo ou EAN..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos</SelectItem>
-              <SelectItem value="ok">OK</SelectItem>
-              <SelectItem value="baixo">Baixo</SelectItem>
-              <SelectItem value="zerado">Zerado</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={lojaFilter} onValueChange={setLojaFilter}>
-            <SelectTrigger className="w-40"><SelectValue placeholder="Todas as lojas" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todas">Todas as lojas</SelectItem>
-              {lojas.map((loja: string) => (
-                <SelectItem key={loja} value={loja}>{loja}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex gap-2">
+            <Select value={filter} onValueChange={setFilter}>
+              <SelectTrigger className="w-full sm:w-36"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="ok">OK</SelectItem>
+                <SelectItem value="baixo">Baixo</SelectItem>
+                <SelectItem value="zerado">Zerado</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={lojaFilter} onValueChange={setLojaFilter}>
+              <SelectTrigger className="w-full sm:w-40"><SelectValue placeholder="Todas as lojas" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">Todas as lojas</SelectItem>
+                {lojas.map((loja: string) => (
+                  <SelectItem key={loja} value={loja}>{loja}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -195,10 +199,10 @@ export default function CometaEstoque() {
                 <thead>
                   <tr className="border-b text-left">
                     <th className="pb-2 font-medium text-muted-foreground">Produto</th>
-                    <th className="pb-2 font-medium text-muted-foreground">Codigo</th>
-                    <th className="pb-2 font-medium text-muted-foreground">Loja</th>
-                    <th className="pb-2 font-medium text-muted-foreground text-right">Qtd. Loja</th>
-                    <th className="pb-2 font-medium text-muted-foreground text-right">Avaria</th>
+                    <th className="pb-2 font-medium text-muted-foreground hidden sm:table-cell">Codigo</th>
+                    <th className="pb-2 font-medium text-muted-foreground hidden sm:table-cell">Loja</th>
+                    <th className="pb-2 font-medium text-muted-foreground text-right">Qtd.</th>
+                    <th className="pb-2 font-medium text-muted-foreground text-right hidden md:table-cell">Avaria</th>
                     <th className="pb-2 font-medium text-muted-foreground">Status</th>
                   </tr>
                 </thead>
@@ -211,10 +215,10 @@ export default function CometaEstoque() {
                           <p className="text-xs text-muted-foreground">EAN: {item.ean}</p>
                         </div>
                       </td>
-                      <td className="py-2 text-muted-foreground">{item.codigo_produto}</td>
-                      <td className="py-2">{item.loja}</td>
+                      <td className="py-2 text-muted-foreground hidden sm:table-cell">{item.codigo_produto}</td>
+                      <td className="py-2 hidden sm:table-cell">{item.loja}</td>
                       <td className="py-2 text-right font-bold">{item.quantidade}</td>
-                      <td className="py-2 text-right text-orange-600">{item.quantidade_avaria > 0 ? item.quantidade_avaria : "-"}</td>
+                      <td className="py-2 text-right text-orange-600 hidden md:table-cell">{item.quantidade_avaria > 0 ? item.quantidade_avaria : "-"}</td>
                       <td className="py-2">
                         <Badge className={getStatusColor(item.status)}>{getStatusLabel(item.status)}</Badge>
                       </td>

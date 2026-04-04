@@ -49,12 +49,12 @@ export default function CometaDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Dashboard Cometa</h1>
-          <p className="text-muted-foreground">Visao geral da integracao com o Cometa Supermercados</p>
+          <h1 className="text-2xl sm:text-3xl font-bold">Dashboard Cometa</h1>
+          <p className="text-muted-foreground text-sm">Visao geral da integracao com o Cometa Supermercados</p>
         </div>
-        <Button variant="outline" onClick={() => forceSyncMutation.mutate()} disabled={forceSyncMutation.isPending}>
+        <Button variant="outline" size="sm" onClick={() => forceSyncMutation.mutate()} disabled={forceSyncMutation.isPending}>
           {forceSyncMutation.isPending ? (
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
           ) : (
@@ -71,7 +71,7 @@ export default function CometaDashboard() {
         </div>
       ) : (
         <>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -79,7 +79,7 @@ export default function CometaDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{totalPedidos}</div>
+                <div className="text-2xl sm:text-3xl font-bold">{totalPedidos}</div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {pedidosPendentes} pendentes - R$ {valorTotalPedidos.toFixed(2).replace(".", ",")} total
                 </p>
@@ -93,7 +93,7 @@ export default function CometaDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-green-600">
+                <div className="text-xl sm:text-3xl font-bold text-green-600">
                   R$ {totalVendas.toFixed(2).replace(".", ",")}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">{totalLojas} lojas com vendas</p>
@@ -107,7 +107,7 @@ export default function CometaDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-orange-600">{estoqueZerado + estoqueBaixo}</div>
+                <div className="text-2xl sm:text-3xl font-bold text-orange-600">{estoqueZerado + estoqueBaixo}</div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {estoqueZerado} zerados - {estoqueBaixo} baixos
                 </p>
@@ -121,7 +121,7 @@ export default function CometaDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{estoque.length}</div>
+                <div className="text-2xl sm:text-3xl font-bold">{estoque.length}</div>
                 <p className="text-xs text-muted-foreground mt-1">Produtos x Lojas monitorados</p>
               </CardContent>
             </Card>
@@ -133,11 +133,11 @@ export default function CometaDashboard() {
                 <CardTitle>Top 10 Lojas por Vendas (R$)</CardTitle>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={topVendasLojas} margin={{ top: 5, right: 30, left: 20, bottom: 60 }}>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={topVendasLojas} margin={{ top: 5, right: 15, left: 10, bottom: 70 }}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="loja" angle={-45} textAnchor="end" interval={0} tick={{ fontSize: 11 }} />
-                    <YAxis tickFormatter={(v) => `R$${v}`} />
+                    <XAxis dataKey="loja" angle={-45} textAnchor="end" interval={0} tick={{ fontSize: 10 }} />
+                    <YAxis tickFormatter={(v) => `R$${(v/1000).toFixed(0)}k`} tick={{ fontSize: 10 }} width={40} />
                     <Tooltip formatter={(value: any) => [`R$ ${Number(value).toFixed(2)}`, "Vendas"]} />
                     <Bar dataKey="vendas" fill="#22c55e" name="Vendas (R$)" radius={[4, 4, 0, 0]} />
                   </BarChart>

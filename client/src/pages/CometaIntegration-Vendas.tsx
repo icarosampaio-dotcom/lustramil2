@@ -238,10 +238,10 @@ export default function CometaVendas() {
   return (
     <div className="space-y-6">
       {/* Cabeçalho */}
-      <div className="flex justify-between items-center flex-wrap gap-3">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Vendas Cometa</h1>
-          <p className="text-muted-foreground">Vendas reais sincronizadas do Cometa Supermercados</p>
+          <h1 className="text-2xl sm:text-3xl font-bold">Vendas Cometa</h1>
+          <p className="text-muted-foreground text-sm">Vendas reais sincronizadas do Cometa Supermercados</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" onClick={() => forceSyncMutation.mutate()} disabled={forceSyncMutation.isPending || isFetching}>
@@ -317,7 +317,7 @@ export default function CometaVendas() {
       )}
 
       {/* Cards de métricas */}
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1 text-green-600">
@@ -325,7 +325,7 @@ export default function CometaVendas() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-green-600">{isLoading ? "..." : fmt(totalVendas)}</p>
+            <p className="text-xl sm:text-2xl font-bold text-green-600">{isLoading ? "..." : fmt(totalVendas)}</p>
             <p className="text-xs text-muted-foreground mt-1">no período filtrado</p>
           </CardContent>
         </Card>
@@ -336,7 +336,7 @@ export default function CometaVendas() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">{isLoading ? "..." : fmt(ticketMedio)}</p>
+            <p className="text-xl sm:text-2xl font-bold">{isLoading ? "..." : fmt(ticketMedio)}</p>
             <p className="text-xs text-muted-foreground mt-1">por dia de venda</p>
           </CardContent>
         </Card>
@@ -347,7 +347,7 @@ export default function CometaVendas() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">{isLoading ? "..." : totalItens.toLocaleString("pt-BR")}</p>
+            <p className="text-xl sm:text-2xl font-bold">{isLoading ? "..." : totalItens.toLocaleString("pt-BR")}</p>
             <p className="text-xs text-muted-foreground mt-1">total de itens</p>
           </CardContent>
         </Card>
@@ -370,7 +370,7 @@ export default function CometaVendas() {
           <CardTitle className="text-base">Filtros</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Buscar produto / EAN</Label>
               <Input placeholder="Nome, código ou EAN..." value={search} onChange={e => setSearch(e.target.value)} />
@@ -452,11 +452,11 @@ export default function CometaVendas() {
                 <CardDescription>Top {chartPorLoja.length} lojas por volume de vendas no período</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={Math.max(300, chartPorLoja.length * 36)}>
+                <ResponsiveContainer width="100%" height={Math.max(250, chartPorLoja.length * 32)}>
                   <BarChart
                     data={chartPorLoja}
                     layout="vertical"
-                    margin={{ top: 5, right: 80, left: 10, bottom: 5 }}
+                    margin={{ top: 5, right: 60, left: 0, bottom: 5 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                     <XAxis
@@ -467,8 +467,8 @@ export default function CometaVendas() {
                     <YAxis
                       type="category"
                       dataKey="nome"
-                      width={160}
-                      tick={{ fontSize: 11 }}
+                      width={120}
+                      tick={{ fontSize: 10 }}
                     />
                     <Tooltip
                       formatter={(value: any) => [fmt(Number(value)), "Vendas"]}
@@ -494,7 +494,7 @@ export default function CometaVendas() {
                 <CardDescription>Volume de vendas por dia no período selecionado</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={320}>
+                <ResponsiveContainer width="100%" height={280}>
                   <BarChart
                     data={chartDiario}
                     margin={{ top: 5, right: 20, left: 10, bottom: chartDiario.length > 10 ? 60 : 20 }}
@@ -528,7 +528,7 @@ export default function CometaVendas() {
                 <CardDescription>Evolução cumulativa das vendas no período</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={320}>
+                <ResponsiveContainer width="100%" height={280}>
                   <AreaChart
                     data={chartAcumulado}
                     margin={{ top: 5, right: 20, left: 10, bottom: chartAcumulado.length > 10 ? 60 : 20 }}
@@ -595,12 +595,12 @@ export default function CometaVendas() {
                 <thead>
                   <tr className="border-b bg-muted/30">
                     <th className="py-2 px-3 text-left font-semibold text-muted-foreground">Produto</th>
-                    <th className="py-2 px-3 text-left font-semibold text-muted-foreground">Loja</th>
-                    <th className="py-2 px-3 text-left font-semibold text-muted-foreground">Data</th>
+                    <th className="py-2 px-3 text-left font-semibold text-muted-foreground hidden sm:table-cell">Loja</th>
+                    <th className="py-2 px-3 text-left font-semibold text-muted-foreground hidden sm:table-cell">Data</th>
                     <th className="py-2 px-3 text-right font-semibold text-muted-foreground">Qtd</th>
                     <th className="py-2 px-3 text-right font-semibold text-muted-foreground">Venda</th>
-                    <th className="py-2 px-3 text-right font-semibold text-muted-foreground">Custo</th>
-                    <th className="py-2 px-3 text-right font-semibold text-muted-foreground">Margem</th>
+                    <th className="py-2 px-3 text-right font-semibold text-muted-foreground hidden md:table-cell">Custo</th>
+                    <th className="py-2 px-3 text-right font-semibold text-muted-foreground hidden md:table-cell">Margem</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -612,12 +612,12 @@ export default function CometaVendas() {
                           <p className="font-medium">{item.produto}</p>
                           <p className="text-xs text-muted-foreground">EAN: {item.ean?.replace(",", "")} | Cód: {item.cod_interno}</p>
                         </td>
-                        <td className="py-2 px-3 text-sm text-muted-foreground">{item.nome_loja}</td>
-                        <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{item.data}</td>
+                        <td className="py-2 px-3 text-sm text-muted-foreground hidden sm:table-cell">{item.nome_loja}</td>
+                        <td className="py-2 px-3 text-muted-foreground whitespace-nowrap hidden sm:table-cell">{item.data}</td>
                         <td className="py-2 px-3 text-right font-medium">{item.qtd}</td>
                         <td className="py-2 px-3 text-right font-bold text-green-600">{fmt(item.venda)}</td>
-                        <td className="py-2 px-3 text-right text-muted-foreground">{fmt(item.custo)}</td>
-                        <td className="py-2 px-3 text-right">
+                        <td className="py-2 px-3 text-right text-muted-foreground hidden md:table-cell">{fmt(item.custo)}</td>
+                        <td className="py-2 px-3 text-right hidden md:table-cell">
                           <span className={`font-medium ${margem >= 30 ? "text-green-600" : margem >= 15 ? "text-yellow-600" : "text-red-600"}`}>
                             {margem.toFixed(1)}%
                           </span>
