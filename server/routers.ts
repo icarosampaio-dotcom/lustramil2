@@ -1537,7 +1537,30 @@ export const appRouter = router({
     }),
     forceSync: protectedProcedure.mutation(async () => {
       cometaSyncService.invalidateCache();
-      return { success: true, message: "Cache invalidado. Próxima consulta buscará dados atualizados." };
+      // Buscar dados imediatamente após invalidar o cache
+      try {
+        const [pedidos, vendas, estoque] = await Promise.all([
+          cometaSyncService.getPedidos(),
+          cometaSyncService.getVendas(),
+          cometaSyncService.getEstoque(),
+        ]);
+        return {
+          success: true,
+          message: `Dados atualizados: ${pedidos.length} pedidos, ${vendas.length} lojas com vendas, ${estoque.length} itens de estoque.`,
+          pedidos: pedidos.length,
+          vendas: vendas.length,
+          estoque: estoque.length,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: `Erro ao buscar dados: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    }),
+
+    testConnection: protectedProcedure.query(async () => {
+      return cometaSyncService.testConnection();
     }),
 
     exportPedidosPDF: protectedProcedure.input(z.object({

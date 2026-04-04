@@ -306,12 +306,30 @@ class CometaSyncService {
    * Invalida o cache para forçar atualização
    */
   invalidateCache() {
-    this.cachedPedidos = null;
-    this.cachedEstoque = null;
-    this.cachedVendas = null;
-    this.cachedLojas = null;
-    this.cachedProdutos = null;
+    // Apenas expira o timestamp - não zera os dados para manter fallback
     this.cacheTimestamp = null;
+    // Também limpa o token para forçar nova autenticação
+    this.authToken = null;
+    this.tokenExpiry = null;
+    console.log("Cache expirado. Próxima consulta buscará dados frescos da API do Cometa.");
+  }
+
+  /**
+   * Testa a conexão com a API do Cometa e retorna diagnóstico
+   */
+  async testConnection(): Promise<{ ok: boolean; token?: string; error?: string; pedidosCount?: number }> {
+    try {
+      const token = await this.authenticate();
+      const data = await this.fetchCometa("/pedido");
+      const arr = Array.isArray(data) ? data : [];
+      if (arr.length > 0) {
+        this.cachedPedidos = arr;
+        this.cacheTimestamp = new Date();
+      }
+      return { ok: true, token: token.substring(0, 20) + "...", pedidosCount: arr.length };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   /**

@@ -15,13 +15,24 @@ export default function CometaMonitoramento() {
     retry: 2,
   });
 
+  const { data: connTest, isLoading: connLoading, refetch: refetchConn } = trpc.cometa.testConnection.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
   const forceSyncMutation = trpc.cometa.forceSync.useMutation({
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       refetch();
-      toast.success("Cache invalidado. Dados serão atualizados na próxima consulta.");
+      refetchConn();
+      if (data?.success) {
+        toast.success(data.message || "Dados atualizados com sucesso!");
+      } else {
+        toast.error(data?.message || "Erro ao buscar dados do Cometa.");
+      }
     },
-    onError: () => {
-      toast.error("Erro ao invalidar cache.");
+    onError: (err: any) => {
+      toast.error(`Erro: ${err?.message || "Falha ao conectar com o Cometa"}`);
     },
   });
 
@@ -49,6 +60,36 @@ export default function CometaMonitoramento() {
           Forçar Atualização
         </Button>
       </div>
+
+      {/* Card de diagnóstico de conexão */}
+      <Card className={connTest?.ok ? "border-green-200 bg-green-50" : connTest?.ok === false ? "border-red-200 bg-red-50" : "border-gray-200"}>
+        <CardContent className="flex items-center justify-between py-4">
+          <div className="flex items-center gap-3">
+            {connLoading ? (
+              <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+            ) : connTest?.ok ? (
+              <CheckCircle className="h-5 w-5 text-green-600" />
+            ) : (
+              <XCircle className="h-5 w-5 text-red-600" />
+            )}
+            <div>
+              <p className={`font-semibold ${connTest?.ok ? "text-green-800" : connTest?.ok === false ? "text-red-800" : "text-gray-700"}`}>
+                {connLoading ? "Testando conexão com API do Cometa..." :
+                  connTest?.ok ? `API Cometa conectada — ${connTest.pedidosCount} pedidos carregados` :
+                  connTest?.ok === false ? `Falha na conexão: ${connTest.error}` :
+                  "Status da conexão desconhecido"}
+              </p>
+              {connTest?.ok && connTest.token && (
+                <p className="text-xs text-green-600">Token: {connTest.token}</p>
+              )}
+            </div>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => { refetchConn(); }} disabled={connLoading}>
+            {connLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wifi className="h-3 w-3" />}
+            <span className="ml-1 text-xs">Testar</span>
+          </Button>
+        </CardContent>
+      </Card>
 
       {isLoading ? (
         <Card>
