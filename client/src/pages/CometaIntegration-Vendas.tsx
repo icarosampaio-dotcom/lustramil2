@@ -553,7 +553,7 @@ export default function CometaVendas() {
                     />
                     <YAxis tickFormatter={v => `R$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
                     <Tooltip
-                      formatter={(value: any, name: string) => [fmt(Number(value)), name === "acumulado" ? "Acumulado" : "Diário"]}
+                      formatter={(value: any, name: string) => [fmt(Number(value)), name === "Acumulado" ? "Acumulado" : "Diário"]}
                       contentStyle={{ fontSize: 12 }}
                     />
                     <Legend />

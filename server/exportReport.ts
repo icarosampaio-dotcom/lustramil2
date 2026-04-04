@@ -1274,7 +1274,6 @@ export function generateCometaVendasPDF(
   tipo: "diario" | "acumulado" | "por_produto",
   filtros: { loja?: string; dataInicio?: string; dataFim?: string }
 ): Buffer {
-  const PDFDocument = require("pdfkit");
   const doc = new PDFDocument({ size: "A4", margin: 0, bufferPages: true });
   const chunks: Buffer[] = [];
   doc.on("data", (c: Buffer) => chunks.push(c));
@@ -1455,7 +1454,6 @@ export async function generateCometaVendasExcel(
   tipo: "diario" | "acumulado" | "por_produto",
   filtros: { loja?: string; dataInicio?: string; dataFim?: string }
 ): Promise<Buffer> {
-  const ExcelJS = require("exceljs");
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "LustraMil";
   workbook.created = new Date();
