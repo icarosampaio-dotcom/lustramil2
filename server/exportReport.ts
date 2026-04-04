@@ -1473,160 +1473,113 @@ export async function generateCometaVendasExcel(
     fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFDBEAFE" } },
   } as any;
 
-  const fmtCurrency = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtCurrency2 = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const filtroTexto = [filtros.loja && `Loja: ${filtros.loja}`, filtros.dataInicio && `De: ${filtros.dataInicio}`, filtros.dataFim && `Até: ${filtros.dataFim}`].filter(Boolean).join(" | ");
 
-  // ── Função auxiliar para criar aba de matriz cruzada (valor ou qtd) com lojas ──
-  const filtroTextoD = [filtros.loja && `Loja: ${filtros.loja}`, filtros.dataInicio && `De: ${filtros.dataInicio}`, filtros.dataFim && `Até: ${filtros.dataFim}`].filter(Boolean).join(" | ");
-  // Coletar datas e lojas ordenadas
-  const datasSetD = new Set<string>();
-  const lojasSetD = new Set<string>();
-  items.forEach(i => { datasSetD.add(i.data); lojasSetD.add(i.nome_loja); });
-  const sortedDatasD = Array.from(datasSetD).sort((a, b) => {
-    const da = parseVendaDate(a), db = parseVendaDate(b);
+  // ── Aba 1: Resumo Diário (Produto + Loja + Dia + Valor + Qtd) ─────────────────────────────
+  const sheetResumo = workbook.addWorksheet("Resumo Diário");
+  // Título
+  sheetResumo.mergeCells("A1:F1");
+  const tcR = sheetResumo.getCell("A1");
+  tcR.value = `LUSTRA MIL — Resumo de Venda Diária | ${new Date().toLocaleDateString("pt-BR")}${filtroTexto ? " | " + filtroTexto : ""}`;
+  tcR.style = { font: { bold: true, size: 13, color: { argb: "FF1E3A8A" } }, alignment: { horizontal: "center" } };
+  sheetResumo.getRow(1).height = 26;
+  // Cabeçalho
+  const hRowR = sheetResumo.addRow(["Produto", "Cód. Interno", "Loja", "Data", "Valor Vendido (R$)", "Qtd Vendida"]);
+  hRowR.eachCell(cell => Object.assign(cell, headerStyle));
+  hRowR.height = 22;
+  // Agrupar: produto + loja + data
+  const resumoMap = new Map<string, { nome: string; cod: string; loja: string; data: string; venda: number; qtd: number }>();
+  items.forEach(i => {
+    const key = `${i.cod_interno || i.ean || i.produto}|${i.nome_loja}|${i.data}`;
+    const cur = resumoMap.get(key) || { nome: i.produto, cod: i.cod_interno, loja: i.nome_loja, data: i.data, venda: 0, qtd: 0 };
+    cur.venda += i.venda;
+    cur.qtd += i.qtd;
+    resumoMap.set(key, cur);
+  });
+  // Ordenar: produto > loja > data
+  const resumoRows = Array.from(resumoMap.values()).sort((a, b) => {
+    const pCmp = a.nome.localeCompare(b.nome);
+    if (pCmp !== 0) return pCmp;
+    const lCmp = a.loja.localeCompare(b.loja);
+    if (lCmp !== 0) return lCmp;
+    const da = parseVendaDate(a.data), db = parseVendaDate(b.data);
     if (!da || !db) return 0;
     return da.getTime() - db.getTime();
   });
-  const sortedLojasD = Array.from(lojasSetD).sort();
-  // Coletar produtos únicos
-  const prodMapD = new Map<string, { nome: string; cod: string }>();
-  items.forEach(i => {
-    const key = i.cod_interno || i.ean || i.produto;
-    if (!prodMapD.has(key)) prodMapD.set(key, { nome: i.produto, cod: i.cod_interno });
+  resumoRows.forEach((r, idx) => {
+    const row = sheetResumo.addRow([r.nome, r.cod, r.loja, r.data, parseFloat(r.venda.toFixed(2)), r.qtd]);
+    if (idx % 2 === 1) {
+      row.eachCell(cell => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0F4FF" } }; });
+    }
+    row.getCell(5).numFmt = '"R$"#,##0.00';
+    row.getCell(5).alignment = { horizontal: "right" };
+    row.getCell(6).alignment = { horizontal: "center" };
+    row.height = 16;
   });
-  const sortedProdsD = Array.from(prodMapD.entries()).sort((a, b) => a[1].nome.localeCompare(b[1].nome));
-  // Acumular venda e qtd por produto+data+loja
-  const matrizVendaD = new Map<string, number>(); // key: cod|data|loja
-  const matrizQtdD = new Map<string, number>();
-  items.forEach(i => {
-    const key = `${i.cod_interno || i.ean || i.produto}|${i.data}|${i.nome_loja}`;
-    matrizVendaD.set(key, (matrizVendaD.get(key) || 0) + i.venda);
-    matrizQtdD.set(key, (matrizQtdD.get(key) || 0) + i.qtd);
+  // Linha de total
+  const totR = sheetResumo.addRow([
+    "TOTAL GERAL", "", "", `${resumoRows.length} registros`,
+    parseFloat(items.reduce((s, i) => s + i.venda, 0).toFixed(2)),
+    items.reduce((s, i) => s + i.qtd, 0),
+  ]);
+  totR.eachCell(cell => Object.assign(cell, totalStyle));
+  totR.getCell(5).numFmt = '"R$"#,##0.00';
+  totR.height = 20;
+  // Larguras
+  [40, 14, 28, 12, 18, 12].forEach((w, i) => { sheetResumo.getColumn(i + 1).width = w; });
+  // Filtro automático
+  sheetResumo.autoFilter = { from: { row: 2, column: 1 }, to: { row: resumoRows.length + 2, column: 6 } };
+  // Congelar linha de cabeçalho
+  sheetResumo.views = [{ state: "frozen", xSplit: 0, ySplit: 2, topLeftCell: "A3", activeCell: "A3" }];
+
+  // ── Aba 2: Detalhado (todos os campos individuais) ──────────────────────────────────
+  const sheetDet = workbook.addWorksheet("Detalhado");
+  sheetDet.mergeCells("A1:I1");
+  const tcDet = sheetDet.getCell("A1");
+  tcDet.value = `LUSTRA MIL — Venda Detalhada | ${new Date().toLocaleDateString("pt-BR")}${filtroTexto ? " | " + filtroTexto : ""}`;
+  tcDet.style = { font: { bold: true, size: 12, color: { argb: "FF1E3A8A" } }, alignment: { horizontal: "center" } };
+  sheetDet.getRow(1).height = 24;
+  const hRowDet = sheetDet.addRow(["Data", "Loja", "Produto", "Cód. Interno", "EAN", "Qtd", "Venda (R$)", "Custo (R$)", "Margem (%)"]);
+  hRowDet.eachCell(cell => Object.assign(cell, headerStyle));
+  hRowDet.height = 20;
+  // Ordenar: data > loja > produto
+  const detItems = [...items].sort((a, b) => {
+    const da = parseVendaDate(a.data), db = parseVendaDate(b.data);
+    const dateCmp = (da && db) ? da.getTime() - db.getTime() : 0;
+    if (dateCmp !== 0) return dateCmp;
+    const lCmp = a.nome_loja.localeCompare(b.nome_loja);
+    if (lCmp !== 0) return lCmp;
+    return a.produto.localeCompare(b.produto);
   });
+  detItems.forEach((i, idx) => {
+    const mg = i.venda > 0 ? ((i.venda - i.custo) / i.venda * 100) : 0;
+    const row = sheetDet.addRow([i.data, i.nome_loja, i.produto, i.cod_interno, i.ean, i.qtd, parseFloat(i.venda.toFixed(2)), parseFloat(i.custo.toFixed(2)), parseFloat(mg.toFixed(2))]);
+    if (idx % 2 === 1) {
+      row.eachCell(cell => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF9FAFB" } }; });
+    }
+    row.getCell(7).numFmt = '"R$"#,##0.00';
+    row.getCell(8).numFmt = '"R$"#,##0.00';
+    row.getCell(9).numFmt = '0.00"%"';
+    row.height = 16;
+  });
+  // Total detalhado
+  const totDet = sheetDet.addRow(["", "", "TOTAL", "", "", items.reduce((s, i) => s + i.qtd, 0), parseFloat(items.reduce((s, i) => s + i.venda, 0).toFixed(2)), parseFloat(items.reduce((s, i) => s + i.custo, 0).toFixed(2)), ""]);
+  totDet.eachCell(cell => Object.assign(cell, totalStyle));
+  totDet.getCell(7).numFmt = '"R$"#,##0.00';
+  totDet.getCell(8).numFmt = '"R$"#,##0.00';
+  totDet.height = 20;
+  [12, 28, 40, 14, 16, 8, 16, 16, 12].forEach((w, i) => { sheetDet.getColumn(i + 1).width = w; });
+  sheetDet.autoFilter = { from: { row: 2, column: 1 }, to: { row: detItems.length + 2, column: 9 } };
+  sheetDet.views = [{ state: "frozen", xSplit: 0, ySplit: 2, topLeftCell: "A3", activeCell: "A3" }];
 
-  // Helper para criar uma aba de matriz
-  const criarAbaMatriz = (
-    nomeAba: string,
-    tipo: "valor" | "qtd",
-    hStyleBase: any,
-    titleArgb: string,
-  ) => {
-    const sheet = workbook.addWorksheet(nomeAba);
-    // Colunas: Produto | Cód | Loja | [Data1..DataN] | TOTAL
-    const nCols = sortedDatasD.length + 4; // Produto + Cód + Loja + datas + TOTAL
-    // Linha 1: Título
-    sheet.mergeCells(1, 1, 1, nCols);
-    const tc = sheet.getCell(1, 1);
-    tc.value = `LUSTRA MIL — Venda Diária por Produto/Loja (${tipo === "valor" ? "R$" : "Qtd"}) | ${new Date().toLocaleDateString("pt-BR")}${filtroTextoD ? " | " + filtroTextoD : ""}`;
-    tc.style = { font: { bold: true, size: 13, color: { argb: titleArgb } }, alignment: { horizontal: "center" } };
-    sheet.getRow(1).height = 26;
-    // Linha 2: Cabeçalho
-    const hRow = sheet.getRow(2);
-    hRow.values = ["Produto", "Cód.", "Loja", ...sortedDatasD, tipo === "valor" ? "TOTAL R$" : "TOTAL Qtd"];
-    hRow.eachCell(cell => Object.assign(cell, hStyleBase));
-    hRow.height = 28;
-    let currentRow = 3;
-    let totalGeralSheet = 0;
-    // Para cada produto, uma linha por loja
-    sortedProdsD.forEach(([cod, info]) => {
-      const lojaRows: number[] = [];
-      sortedLojasD.forEach((loja, lojaIdx) => {
-        const row = sheet.getRow(currentRow);
-        const vals: (string | number)[] = [
-          lojaIdx === 0 ? info.nome : "", // nome do produto só na 1ª linha
-          lojaIdx === 0 ? (info.cod || "") : "",
-          loja,
-        ];
-        let totalLinha = 0;
-        sortedDatasD.forEach(d => {
-          const mapKey = `${cod}|${d}|${loja}`;
-          const v = tipo === "valor"
-            ? parseFloat((matrizVendaD.get(mapKey) || 0).toFixed(2))
-            : (matrizQtdD.get(mapKey) || 0);
-          totalLinha += v;
-          vals.push(v > 0 ? v : "");
-        });
-        totalGeralSheet += totalLinha;
-        vals.push(totalLinha > 0 ? (tipo === "valor" ? parseFloat(totalLinha.toFixed(2)) : totalLinha) : 0);
-        row.values = vals;
-        const bg = currentRow % 2 === 0 ? (tipo === "valor" ? "FFF0F4FF" : "FFF0FFF4") : "FFFFFFFF";
-        row.eachCell((cell, colNum) => {
-          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } };
-          cell.border = { bottom: { style: "hair" }, right: { style: "hair" } };
-          if (colNum > 3 && typeof cell.value === "number" && cell.value > 0) {
-            if (tipo === "valor") { cell.numFmt = '"R$"#,##0.00'; cell.font = { color: { argb: "FF1E40AF" } }; }
-            else { cell.font = { color: { argb: "FF166534" } }; }
-            cell.alignment = { horizontal: "right" };
-          }
-        });
-        row.height = 17;
-        lojaRows.push(currentRow);
-        currentRow++;
-      });
-      // Linha de subtotal do produto (soma de todas as lojas)
-      const subRow = sheet.getRow(currentRow);
-      const subVals: (string | number)[] = ["", `└ Total: ${info.nome.substring(0, 25)}`, "TODAS"];
-      let subTotal = 0;
-      sortedDatasD.forEach(d => {
-        const t = sortedLojasD.reduce((s, loja) => {
-          const mapKey = `${cod}|${d}|${loja}`;
-          return s + (tipo === "valor" ? (matrizVendaD.get(mapKey) || 0) : (matrizQtdD.get(mapKey) || 0));
-        }, 0);
-        subTotal += t;
-        const tv = tipo === "valor" ? parseFloat(t.toFixed(2)) : t;
-        subVals.push(tv > 0 ? tv : "");
-      });
-      subVals.push(tipo === "valor" ? parseFloat(subTotal.toFixed(2)) : subTotal);
-      subRow.values = subVals;
-      subRow.eachCell((cell, colNum) => {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: tipo === "valor" ? "FFDBEAFE" : "FFD1FAE5" } };
-        cell.font = { bold: true, color: { argb: tipo === "valor" ? "FF1E40AF" : "FF166534" } };
-        cell.border = { bottom: { style: "thin" }, right: { style: "hair" } };
-        if (colNum > 3 && typeof cell.value === "number" && cell.value > 0) {
-          if (tipo === "valor") cell.numFmt = '"R$"#,##0.00';
-          cell.alignment = { horizontal: "right" };
-        }
-      });
-      subRow.height = 17;
-      currentRow++;
-    });
-    // Linha TOTAL GERAL POR DIA
-    const totRow = sheet.getRow(currentRow);
-    const totVals: (string | number)[] = ["TOTAL DO DIA", "", "TODAS AS LOJAS"];
-    sortedDatasD.forEach(d => {
-      const t = items.filter(i => i.data === d).reduce((s, i) => s + (tipo === "valor" ? i.venda : i.qtd), 0);
-      totVals.push(tipo === "valor" ? parseFloat(t.toFixed(2)) : t);
-    });
-    totVals.push(tipo === "valor" ? parseFloat(totalGeralSheet.toFixed(2)) : totalGeralSheet);
-    totRow.values = totVals;
-    totRow.eachCell((cell, colNum) => {
-      Object.assign(cell, totalStyle);
-      if (colNum > 3 && typeof cell.value === "number" && tipo === "valor") cell.numFmt = '"R$"#,##0.00';
-    });
-    totRow.height = 22;
-    // Larguras das colunas
-    sheet.getColumn(1).width = 40;
-    sheet.getColumn(2).width = 12;
-    sheet.getColumn(3).width = 22;
-    sortedDatasD.forEach((_, idx) => { sheet.getColumn(idx + 4).width = tipo === "valor" ? 13 : 9; });
-    sheet.getColumn(sortedDatasD.length + 4).width = 14;
-    // Congelar painel: linha 2 e coluna C
-    sheet.views = [{ state: "frozen", xSplit: 3, ySplit: 2, topLeftCell: "D3", activeCell: "D3" }];
-  };
-
-  criarAbaMatriz("Venda Diária (R$)", "valor", headerStyle, "FF1E3A8A");
-  criarAbaMatriz("Venda Diária (Qtd)", "qtd", {
-    font: { bold: true, color: { argb: "FFFFFFFF" }, size: 10 },
-    fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF166534" } },
-    alignment: { horizontal: "center", vertical: "middle" },
-    border: { bottom: { style: "thin" }, right: { style: "thin" } },
-  }, "FF166534");
-
-  // ── Aba Por Produto ─────────────────────────────────────────────────────────
+  // ── Aba 3: Por Produto (ranking) ──────────────────────────────────────────────────────
   const sheetProd = workbook.addWorksheet("Por Produto");
-  sheetProd.addRow([`RELATÓRIO DE VENDAS — POR PRODUTO | LustraMil | ${new Date().toLocaleDateString("pt-BR")}`]);
-  sheetProd.getRow(1).font = { bold: true, size: 12, color: { argb: "FF1E3A8A" } };
-  sheetProd.addRow([]);
-
+  sheetProd.mergeCells("A1:H1");
+  const tcProd = sheetProd.getCell("A1");
+  tcProd.value = `LUSTRA MIL — Ranking de Produtos | ${new Date().toLocaleDateString("pt-BR")}${filtroTexto ? " | " + filtroTexto : ""}`;
+  tcProd.style = { font: { bold: true, size: 12, color: { argb: "FF1E3A8A" } }, alignment: { horizontal: "center" } };
+  sheetProd.getRow(1).height = 24;
   const byProd = new Map<string, { nome: string; ean: string; cod: string; venda: number; custo: number; qtd: number }>();
   items.forEach(i => {
     const key = i.cod_interno || i.ean || i.produto;
@@ -1635,49 +1588,26 @@ export async function generateCometaVendasExcel(
     byProd.set(key, cur);
   });
   const sortedProds = Array.from(byProd.values()).sort((a, b) => b.venda - a.venda);
-
   const hRowP = sheetProd.addRow(["#", "Produto", "Cód. Interno", "EAN", "Venda (R$)", "Custo (R$)", "Margem (%)", "Qtd"]);
   hRowP.eachCell(cell => Object.assign(cell, headerStyle));
   hRowP.height = 20;
-
   sortedProds.forEach((p, idx) => {
     const mg = p.venda > 0 ? ((p.venda - p.custo) / p.venda * 100) : 0;
-    const row = sheetProd.addRow([idx + 1, p.nome, p.cod, p.ean, p.venda, p.custo, mg, p.qtd]);
+    const row = sheetProd.addRow([idx + 1, p.nome, p.cod, p.ean, parseFloat(p.venda.toFixed(2)), parseFloat(p.custo.toFixed(2)), parseFloat(mg.toFixed(2)), p.qtd]);
     if (idx % 2 === 1) {
-      row.eachCell(cell => {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF9FAFB" } };
-      });
+      row.eachCell(cell => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF9FAFB" } }; });
     }
     row.getCell(5).numFmt = '"R$"#,##0.00';
     row.getCell(6).numFmt = '"R$"#,##0.00';
     row.getCell(7).numFmt = '0.00"%"';
+    row.height = 16;
   });
-
-  const totP = sheetProd.addRow(["", "TOTAL", "", "", items.reduce((s, i) => s + i.venda, 0), items.reduce((s, i) => s + i.custo, 0), "", items.reduce((s, i) => s + i.qtd, 0)]);
+  const totP = sheetProd.addRow(["", "TOTAL", "", "", parseFloat(items.reduce((s, i) => s + i.venda, 0).toFixed(2)), parseFloat(items.reduce((s, i) => s + i.custo, 0).toFixed(2)), "", items.reduce((s, i) => s + i.qtd, 0)]);
   totP.eachCell(cell => Object.assign(cell, totalStyle));
   totP.getCell(5).numFmt = '"R$"#,##0.00';
   totP.getCell(6).numFmt = '"R$"#,##0.00';
+  totP.height = 20;
   [6, 40, 14, 16, 16, 16, 12, 10].forEach((w, i) => { sheetProd.getColumn(i + 1).width = w; });
-
-  // ── Aba Detalhado ───────────────────────────────────────────────────────────
-  const sheetDet = workbook.addWorksheet("Detalhado");
-  const hRowDet = sheetDet.addRow(["Data", "Loja", "Produto", "Cód.", "EAN", "Qtd", "Venda (R$)", "Custo (R$)", "Margem (%)"]);
-  hRowDet.eachCell(cell => Object.assign(cell, headerStyle));
-  hRowDet.height = 20;
-
-  items.forEach((i, idx) => {
-    const mg = i.venda > 0 ? ((i.venda - i.custo) / i.venda * 100) : 0;
-    const row = sheetDet.addRow([i.data, i.nome_loja, i.produto, i.cod_interno, i.ean, i.qtd, i.venda, i.custo, mg]);
-    if (idx % 2 === 1) {
-      row.eachCell(cell => {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF9FAFB" } };
-      });
-    }
-    row.getCell(7).numFmt = '"R$"#,##0.00';
-    row.getCell(8).numFmt = '"R$"#,##0.00';
-    row.getCell(9).numFmt = '0.00"%"';
-  });
-  [12, 30, 40, 12, 16, 8, 16, 16, 12].forEach((w, i) => { sheetDet.getColumn(i + 1).width = w; });
 
   const buf = await workbook.xlsx.writeBuffer();
   return Buffer.from(buf);
