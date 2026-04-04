@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { DatePickerInput } from "@/components/DatePickerInput";
 
 const statusConfig = {
   pendente: { label: "Pendente", color: "bg-yellow-100 text-yellow-800 border-yellow-300" },
@@ -336,11 +337,11 @@ export default function CometaPedidos() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Data inicial</label>
-                <Input type="date" value={filterDataInicio} onChange={e => setFilterDataInicio(e.target.value)} />
+                <DatePickerInput value={filterDataInicio} onChange={setFilterDataInicio} placeholder="Data inicial" />
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Data final</label>
-                <Input type="date" value={filterDataFim} onChange={e => setFilterDataFim(e.target.value)} />
+                <DatePickerInput value={filterDataFim} onChange={setFilterDataFim} placeholder="Data final" />
               </div>
             </div>
 

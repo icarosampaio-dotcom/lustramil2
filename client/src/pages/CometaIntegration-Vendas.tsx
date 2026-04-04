@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { DatePickerInput } from "@/components/DatePickerInput";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, LineChart, Line, Area, AreaChart, Cell
@@ -488,11 +489,11 @@ export default function CometaVendas() {
             </div>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Data inicial</Label>
-              <Input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} />
+              <DatePickerInput value={dataInicio} onChange={setDataInicio} placeholder="Data inicial" />
             </div>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Data final</Label>
-              <Input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} />
+              <DatePickerInput value={dataFim} onChange={setDataFim} placeholder="Data final" />
             </div>
           </div>
 
